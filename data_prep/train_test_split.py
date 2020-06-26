@@ -30,13 +30,13 @@ def main(opt):
 	  # Copy-pasting images
 	  for name in train_FileNames:
 	      if name.endswith('.png') or name.endswith('.jpg'):
-		shutil.copy(name, out_dir +'/train/' + c)
+		      shutil.copy(name, out_dir +'/train/' + c)
 
 	  for name in test_FileNames:
 	      if name.endswith('.png') or name.endswith('.jpg'):
-		shutil.copy(name, out_dir +'/test/' + c)
+		      shutil.copy(name, out_dir +'/test/' + c)
 
-if __name__ == '__main__":
+if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument(
 	'--root', default=None, help='data root folder')
@@ -44,4 +44,5 @@ if __name__ == '__main__":
 	'--out', default=None, help='data out folder')
 	opt = parser.parse_args()
 	main(opt)
+
 

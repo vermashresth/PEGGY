@@ -22,11 +22,9 @@ if __name__ == "__main__":
 	torch.manual_seed(0)
 	np.random.seed(0)
 	if cuda:
-	torch.cuda.manual_seed_all(0)
-	cudnn.benchmark = True
-	# produce_vgg_features(sftmax=0)
-	# produce_vgg_features(sftmax=1)
+		torch.cuda.manual_seed_all(0)
+		cudnn.benchmark = True
 	produce_vgg_features(sftmax=0, data=opt.root, save=opt.out, partition='test/')
-	produce_vgg_features(sftmax=1, data=opt.root, save=opt.out, partition='test/')
+	# produce_vgg_features(sftmax=1, data=opt.root, save=opt.out, partition='test/')
 	produce_vgg_features(sftmax=0, data=opt.root, save=opt.out, partition='train/')
-	produce_vgg_features(sftmax=1, data=opt.root, save=opt.out, partition='train/')
+	# produce_vgg_features(sftmax=1, data=opt.root, save=opt.out, partition='train/')

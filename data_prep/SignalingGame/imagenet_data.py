@@ -86,7 +86,7 @@ def produce_vgg_features(data='path/to/your/images',
             concepts.append(label) #should we keep the errored one here?
         data[idx_data[0]] = features.squeeze(0).data
     print("N errors",count)
-    data=np.delete(data, np.array(idx_error), axis=0)
+    # data=np.delete(data, np.array(idx_error), axis=0)
     print(data.size())
 
     np_data = data.cpu().numpy()

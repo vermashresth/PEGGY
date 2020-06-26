@@ -72,13 +72,15 @@ def produce_vgg_features(data='path/to/your/images',
         if y[0]==-1:
             print("ERROR", path)
             count += 1
-            label = path[0].split('/')[-1].split('_')[0]
+            #label = path[0].split('/')[-1].split('_')[0]
+            label = path[0].split('/')[-2]
             features = Variable(torch.zeros(1,n_features).fill_(np.nan).cuda())
             print(idx_data[0])
             idx_error.append(idx_data[0])
         else:
             x = Variable(x.cuda(), requires_grad=False)
-            label = path[0].split('/')[-1].split('_')[0]
+            #label = path[0].split('/')[-1].split('_')[0]
+            label = path[0].split('/')[-2]
             features = network(x)
             img_path_idx.append([idx_data[0],path[0]])
             concepts.append(label) #should we keep the errored one here?

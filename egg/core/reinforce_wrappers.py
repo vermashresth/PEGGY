@@ -162,7 +162,7 @@ class MyRnnSenderReinforce(nn.Module):
         :param force_eos: if set to True, each message is extended by an EOS symbol. To ensure that no message goes
         beyond `max_len`, Sender only generates `max_len - 1` symbols from an RNN cell and appends EOS.
         """
-        super(RnnSenderReinforce, self).__init__()
+        super(MyRnnSenderReinforce, self).__init__()
         self.agent = agent
 
         self.force_eos = force_eos

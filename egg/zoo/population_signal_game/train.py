@@ -7,8 +7,8 @@ import os
 import argparse
 import torch.nn.functional as F
 import egg.core as core
-from egg.zoo.signal_game.features import ImageNetFeat, ImagenetLoader
-from egg.zoo.signal_game.archs import InformedSender, Receiver
+from egg.zoo.population_signal_game.features import ImageNetFeat, ImagenetLoader
+from egg.zoo.population_signal_game.archs import InformedSender, MyReceiver, Receiver
 
 
 def parse_arguments():

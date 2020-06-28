@@ -133,7 +133,8 @@ class SymbolGameReinforce(nn.Module):
 
         return full_loss, rest_info
 
-class MyRnnSenderReinforce(nn.Module):
+
+class RnnSenderReinforce(nn.Module):
     """
     Reinforce Wrapper for Sender in variable-length message game. Assumes that during the forward,
     the wrapped agent returns the initial hidden state for a RNN cell. This cell is the unrolled by the wrapper.
@@ -230,6 +231,7 @@ class MyRnnSenderReinforce(nn.Module):
 
             input = self.embedding(x)
             sequence.append(x)
+            # print(x, x.size())
 
         sequence = torch.stack(sequence).permute(1, 0)
         logits = torch.stack(logits).permute(1, 0)
@@ -241,118 +243,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = torch.cat([sequence, zeros.long()], dim=1)
             logits = torch.cat([logits, zeros], dim=1)
             entropy = torch.cat([entropy, zeros], dim=1)
-
-        return sequence, logits, entropy
-
-class RnnSenderReinforce(nn.Module):
-    """
-    Reinforce Wrapper for Sender in variable-length message game. Assumes that during the forward,
-    the wrapped agent returns the initial hidden state for a RNN cell. This cell is the unrolled by the wrapper.
-    During training, the wrapper samples from the cell, getting the output message. Evaluation-time, the sampling
-    is replaced by argmax.
-
-    >>> agent = nn.Linear(10, 3)
-    >>> agent = RnnSenderReinforce(agent, vocab_size=5, embed_dim=5, hidden_size=3, max_len=10, cell='lstm', force_eos=False)
-    >>> input = torch.FloatTensor(16, 10).uniform_(-0.1, 0.1)
-    >>> message, logprob, entropy = agent(input)
-    >>> message.size()
-    torch.Size([16, 10])
-    >>> (entropy > 0).all().item()
-    1
-    >>> message.size()  # batch size x max_len
-    torch.Size([16, 10])
-    """
-    def __init__(self, agent, vocab_size, embed_dim, hidden_size, max_len, num_layers=1, cell='rnn', force_eos=True):
-        """
-        :param agent: the agent to be wrapped
-        :param vocab_size: the communication vocabulary size
-        :param embed_dim: the size of the embedding used to embed the output symbols
-        :param hidden_size: the RNN cell's hidden state size
-        :param max_len: maximal length of the output messages
-        :param cell: type of the cell used (rnn, gru, lstm)
-        :param force_eos: if set to True, each message is extended by an EOS symbol. To ensure that no message goes
-        beyond `max_len`, Sender only generates `max_len - 1` symbols from an RNN cell and appends EOS.
-        """
-        super(RnnSenderReinforce, self).__init__()
-        self.agent = agent
-
-        self.force_eos = force_eos
-
-        self.max_len = max_len
-        if force_eos:
-            assert self.max_len > 1, "Cannot force eos when max_len is below 1"
-            self.max_len -= 1
-
-        self.hidden_to_output = nn.Linear(hidden_size, vocab_size)
-        self.embedding = nn.Embedding(vocab_size, embed_dim)
-        self.sos_embedding = nn.Parameter(torch.zeros(embed_dim))
-        self.embed_dim = embed_dim
-        self.vocab_size = vocab_size
-        self.num_layers = num_layers
-        self.cells = None
-
-        cell = cell.lower()
-        cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
-
-        if cell not in cell_types:
-            raise ValueError(f"Unknown RNN Cell: {cell}")
-
-        cell_type = cell_types[cell]
-        self.cells = nn.ModuleList([
-            cell_type(input_size=embed_dim, hidden_size=hidden_size) if i == 0 else \
-            cell_type(input_size=hidden_size, hidden_size=hidden_size) for i in range(self.num_layers)])
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.normal_(self.sos_embedding, 0.0, 0.01)
-
-    def forward(self, x):
-        prev_hidden = [self.agent(x)]
-        prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
-
-        prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
-
-        input = torch.stack([self.sos_embedding] * x.size(0))
-
-        sequence = []
-        logits = []
-        entropy = []
-
-        for step in range(self.max_len):
-            for i, layer in enumerate(self.cells):
-                if isinstance(layer, nn.LSTMCell):
-                    h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
-                    prev_c[i] = c_t
-                else:
-                    h_t = layer(input, prev_hidden[i])
-                prev_hidden[i] = h_t
-                input = h_t
-
-            step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
-            distr = Categorical(logits=step_logits)
-            entropy.append(distr.entropy())
-
-            if self.training:
-                x = distr.sample()
-            else:
-                x = step_logits.argmax(dim=1)
-            logits.append(distr.log_prob(x))
-
-            input = self.embedding(x)
-            sequence.append(x)
-
-        sequence = torch.stack(sequence).permute(1, 0)
-        logits = torch.stack(logits).permute(1, 0)
-        entropy = torch.stack(entropy).permute(1, 0)
-
-        if self.force_eos:
-            zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
-
-            sequence = torch.cat([sequence, zeros.long()], dim=1)
-            logits = torch.cat([logits, zeros], dim=1)
-            entropy = torch.cat([entropy, zeros], dim=1)
-
+        # print('sequence', sequence)
         return sequence, logits, entropy
 
 
@@ -370,6 +261,8 @@ class RnnReceiverReinforce(nn.Module):
 
     def forward(self, message, input=None, lengths=None):
         encoded = self.encoder(message)
+        # print("input", input)
+        # print("encoded", encoded)
         sample, logits, entropy = self.agent(encoded, input)
 
         return sample, logits, entropy
@@ -408,8 +301,11 @@ class RnnReceiverDeterministic(nn.Module):
         self.encoder = RnnEncoder(vocab_size, embed_dim, hidden_size, cell, num_layers)
 
     def forward(self, message, input=None, lengths=None):
+
         encoded = self.encoder(message)
         agent_output = self.agent(encoded, input)
+        # print("input", input)
+        # print("encoded", encoded)
 
         logits = torch.zeros(agent_output.size(0)).to(agent_output.device)
         entropy = logits

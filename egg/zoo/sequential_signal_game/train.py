@@ -20,8 +20,6 @@ def parse_arguments():
                         help='Sender Gibbs temperature')
     parser.add_argument('--game_size', type=int, default=2,
                         help='Number of images seen by an agent')
-    parser.add_argument('--pop_size', type=int, default=1,
-                        help='Number of pop of one type')
     parser.add_argument('--same', type=int, default=0,
                         help='Use same concepts')
     parser.add_argument('--embedding_size', type=int, default=50,
@@ -84,34 +82,21 @@ def get_my_game(opt):
     feat_size = 4096
     out_hidden_size = 20
     emb_size = 10
-    pop = opt.pop_size
-    sender_list = []
-    receiver_list = []
-    for i in range(pop):
-        sender = InformedSender(opt.game_size, feat_size,
-                                opt.embedding_size, opt.hidden_size, out_hidden_size,
-                                temp=opt.tau_s)
-        receiver = MyReceiver(opt.game_size, feat_size,
-                            opt.embedding_size, out_hidden_size, reinforce=(opts.mode == 'rf'))
-
-        if opts.mode == 'rf':
-            sender = core.MyRnnSenderReinforce(sender, opt.vocab_size, emb_size, out_hidden_size,
-                                       cell="gru", max_len=opt.max_len)
-            receiver = core.RnnReceiverReinforce(receiver, opt.vocab_size, emb_size,
-                       out_hidden_size, cell="gru")
-        elif opts.mode == 'gs':
-            sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
-        else:
-            raise RuntimeError(f"Unknown training mode: {opts.mode}")
-
-        sender_list.append(sender)
-        receiver_list.append(receiver)
-
+    sender = InformedSender(opt.game_size, feat_size,
+                            opt.embedding_size, opt.hidden_size, out_hidden_size,
+                            temp=opt.tau_s)
+    receiver = MyReceiver(opt.game_size, feat_size,
+                        opt.embedding_size, out_hidden_size, reinforce=(opts.mode == 'rf'))
     if opts.mode == 'rf':
-        game = core.PopSenderReceiverRnnReinforce(
-            sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+        sender = core.MyRnnSenderReinforce(sender, opt.vocab_size, emb_size, out_hidden_size,
+                                   cell="gru", max_len=opt.max_len)
+        receiver = core.RnnReceiverReinforce(receiver, opt.vocab_size, emb_size,
+                   out_hidden_size, cell="gru")
+        game = core.SenderReceiverRnnReinforce(
+            sender, receiver, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
     elif opts.mode == 'gs':
-        game = core.PopSymbolGameGS(sender_list, receiver_list, pop, loss_nll)
+        sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
+        game = core.SymbolGameGS(sender, receiver, loss_nll)
     else:
         raise RuntimeError(f"Unknown training mode: {opts.mode}")
 

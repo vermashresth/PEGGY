@@ -6,6 +6,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical
 
 
 class InformedSender(nn.Module):
@@ -71,7 +72,7 @@ class InformedSender(nn.Module):
 class MyReceiver(nn.Module):
     def __init__(self, game_size, feat_size, embedding_size,
                  vocab_size, reinforce):
-        super(Receiver, self).__init__()
+        super(MyReceiver, self).__init__()
         self.game_size = game_size
         self.embedding_size = embedding_size
 
@@ -98,7 +99,8 @@ class MyReceiver(nn.Module):
         distr = Categorical(logits=log_probs)
         entropy = distr.entropy()
         sample =  distr.sample()
-        return sample, log_probs, entropy
+        logit = distr.log_prob(sample)
+        return sample, logit, entropy
 
     def return_embeddings(self, x):
         # embed each image (left or right)

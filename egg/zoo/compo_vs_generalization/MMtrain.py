@@ -13,7 +13,7 @@ import egg.core as core
 from egg.zoo.compo_vs_generalization.data import ScaledDataset, enumerate_attribute_value, split_train_test, one_hotify, split_holdout, \
     select_subset_V1, select_subset_V2
 from egg.zoo.compo_vs_generalization.archs import MMSender, MMReceiver, \
-    Freezer, PlusOneWrapper, MMNonLinearReceiver, CombineMMRnnSenderReinforce, splitWrapper
+    Freezer, PlusOneWrapper, MMNonLinearReceiver, CombineMMRnnSenderReinforce, SplitWrapper
 from egg.zoo.compo_vs_generalization.intervention import Metrics, Evaluator
 
 from egg.core import EarlyStopperAccuracy
@@ -152,8 +152,8 @@ def main(params):
 
     if opts.sender_cell in ['lstm', 'rnn', 'gru']:
         sender = MMSender(n_inputs=n_dim, n_hidden=opts.sender_hidden)
-        s1 = splitWrapper(sender, 0)
-        s2 = splitWrapper(sender, 1)
+        s1 = SplitWrapper(sender, 0)
+        s2 = SplitWrapper(sender, 1)
         sender1 = core.RnnSenderReinforce(agent=s1, vocab_size=opts.vocab_size,
                                          embed_dim=opts.sender_emb, hidden_size=opts.sender_hidden, max_len=opts.max_len, force_eos=False,
                                          cell=opts.sender_cell)
@@ -241,21 +241,21 @@ def main(params):
         frozen_sender = Freezer(copy.deepcopy(sender))
 
         def gru_receiver_generator(): return \
-            core.RnnReceiverDeterministic(Receiver(n_hidden=opts.receiver_hidden, n_outputs=n_dim),
+            core.MMRnnReceiverDeterministic(MMReceiver(n_hidden=opts.receiver_hidden, n_outputs=n_dim),
                                           opts.vocab_size + 1, opts.receiver_emb, hidden_size=opts.receiver_hidden, cell='gru')
 
         def small_gru_receiver_generator(): return \
-            core.RnnReceiverDeterministic(
-                Receiver(n_hidden=100, n_outputs=n_dim),
+            core.MMRnnReceiverDeterministic(
+                MMReceiver(n_hidden=50, n_outputs=n_dim),
                 opts.vocab_size + 1, opts.receiver_emb, hidden_size=100, cell='gru')
 
         def tiny_gru_receiver_generator(): return \
-            core.RnnReceiverDeterministic(
-                Receiver(n_hidden=50, n_outputs=n_dim),
+            core.MMRnnReceiverDeterministic(
+                MMReceiver(n_hidden=25, n_outputs=n_dim),
                 opts.vocab_size + 1, opts.receiver_emb, hidden_size=50, cell='gru')
 
         def nonlinear_receiver_generator(): return \
-            NonLinearReceiver(n_outputs=n_dim, vocab_size=opts.vocab_size + 1,
+            MMNonLinearReceiver(n_outputs=n_dim, vocab_size=opts.vocab_size + 1,
                               max_length=opts.max_len, n_hidden=opts.receiver_hidden)
 
         for name, receiver_generator in [

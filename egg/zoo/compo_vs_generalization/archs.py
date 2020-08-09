@@ -26,7 +26,7 @@ class CombineMMRnnSenderReinforce(nn.Module):
 
 class SplitWrapper(nn.Module):
     def __init__(self, s, part):
-      super(splitWrapper, self).__init__()
+      super(SplitWrapper, self).__init__()
       self.s = s
       self.part = part
     def forward(self, x):

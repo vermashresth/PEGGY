@@ -14,7 +14,7 @@ from .gs_wrappers import (GumbelSoftmaxWrapper,
 
 from .reinforce_wrappers import (ReinforceWrapper, SymbolGameReinforce,
                                  ReinforceDeterministicWrapper, RnnReceiverReinforce,
-                                 MyRnnSenderReinforce, RnnSenderReinforce, SenderReceiverRnnReinforce,
+                                 MyRnnSenderReinforce, RnnSenderReinforce, PopSenderReceiverRnnReinforce, SenderReceiverRnnReinforce,
                                  RnnReceiverDeterministic, TransformerReceiverDeterministic,
                                  TransformerSenderReinforce)
 from .util import find_lengths

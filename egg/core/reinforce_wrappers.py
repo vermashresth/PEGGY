@@ -581,9 +581,9 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         :param length_cost: the penalty applied to Sender for each symbol produced
         :param baseline_type: Callable, returns a baseline instance (eg a class specializing core.baselines.Baseline)
         """
-        super(SenderReceiverRnnReinforce, self).__init__()
-        self.sender_list = sender_list
-        self.receiver_list = receiver_list
+        super(PopSenderReceiverRnnReinforce, self).__init__()
+        self.sender_list = nn.ModuleList(sender_list)
+        self.receiver_list = nn.ModuleList(receiver_list)
         self.pop = pop
         self.sender_entropy_coeff = sender_entropy_coeff
         self.receiver_entropy_coeff = receiver_entropy_coeff
@@ -594,7 +594,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
     def forward(self, sender_input, labels, receiver_input=None):
         index = np.random.choice(range(self.pop))
-        
+
         self.sender = self.sender_list[index]
         self.receiver = self.receiver_list[index]
 

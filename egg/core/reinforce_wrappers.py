@@ -416,6 +416,51 @@ class RnnReceiverDeterministic(nn.Module):
 
         return agent_output, logits, entropy
 
+class MMRnnReceiverDeterministic(nn.Module):
+    """
+    Reinforce Wrapper for a deterministic Receiver in variable-length message game. The wrapper logic feeds the message
+    into the cell and calls the wrapped agent with the hidden state that either corresponds to the end-of-sequence
+    term or to the end of the sequence. The wrapper extends it with zero-valued log-prob and entropy tensors so that
+    the agent becomes compatible with the SenderReceiverRnnReinforce game.
+
+    As the wrapped agent does not sample, it has to be trained via regular back-propagation. This requires that both the
+    the agent's output and  loss function and the wrapped agent are differentiable.
+
+    >>> class Agent(nn.Module):
+    ...     def __init__(self):
+    ...         super().__init__()
+    ...         self.fc = nn.Linear(5, 3)
+    ...     def forward(self, rnn_output, _input = None):
+    ...         return self.fc(rnn_output)
+    >>> agent = RnnReceiverDeterministic(Agent(), vocab_size=10, embed_dim=10, hidden_size=5)
+    >>> message = torch.zeros((16, 10)).long().random_(0, 10)  # batch of 16, 10 symbol length
+    >>> output, logits, entropy = agent(message)
+    >>> (logits == 0).all().item()
+    1
+    >>> (entropy == 0).all().item()
+    1
+    >>> output.size()
+    torch.Size([16, 3])
+    """
+
+    def __init__(self, agent, vocab_size, embed_dim, hidden_size, cell='rnn', num_layers=1):
+        super(MMRnnReceiverDeterministic, self).__init__()
+        self.agent = agent
+        self.encoder1 = RnnEncoder(vocab_size, embed_dim, hidden_size, cell, num_layers)
+        self.encoder2 = RnnEncoder(vocab_size, embed_dim, hidden_size, cell, num_layers)
+
+    def forward(self, message, input=None, lengths=None):
+        message1, message2 = torch.split(message, 2, dim=1)
+        encoded1 = self.encoder2(message1)
+        encoded2 = self.encoder2(message2)
+        encoded = torch.cat([encoded1, encoded2], dim=1)
+        agent_output = self.agent(encoded, input)
+
+        logits = torch.zeros(agent_output.size(0)).to(agent_output.device)
+        entropy = logits
+
+        return agent_output, logits, entropy
+
 
 class SenderReceiverRnnReinforce(nn.Module):
     """

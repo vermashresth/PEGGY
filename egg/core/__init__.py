@@ -13,7 +13,7 @@ from .gs_wrappers import (GumbelSoftmaxWrapper,
                           SenderReceiverRnnGS, SymbolReceiverWrapper)
 
 from .reinforce_wrappers import (ReinforceWrapper, SymbolGameReinforce,
-                                 ReinforceDeterministicWrapper, RnnReceiverReinforce,
+                                 ReinforceDeterministicWrapper, RnnReceiverReinforce, MMRnnReceiverDeterministic,
                                  MyRnnSenderReinforce, RnnSenderReinforce, PopSenderReceiverRnnReinforce, SenderReceiverRnnReinforce,
                                  RnnReceiverDeterministic, TransformerReceiverDeterministic,
                                  TransformerSenderReinforce)

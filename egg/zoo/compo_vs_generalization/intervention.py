@@ -60,7 +60,8 @@ def MMask_sender(n_attributes, n_values, dataset, sender, device, true_vocab_siz
     meanings = torch.stack(meanings, dim=0)
 
     str1, str2 = torch.split(strings, 2, dim=1)
-    str2  = np.array(str2)
+    str1 = str1.cpu()
+    str2  = np.array(str2.cpu())
     str2[str2==0] = 10000
     str2+=true_vocab_size
     str2[str2==10000+true_vocab_size] = 0

@@ -14,7 +14,7 @@ from egg.zoo.compo_vs_generalization.data import ScaledDataset, enumerate_attrib
     select_subset_V1, select_subset_V2
 from egg.zoo.compo_vs_generalization.archs import MMSender, MMReceiver, \
     Freezer, PlusNWrapper, MMNonLinearReceiver, CombineMMRnnSenderReinforce, SplitWrapper
-from egg.zoo.compo_vs_generalization.intervention import Metrics, Evaluator
+from egg.zoo.compo_vs_generalization.intervention import MMMetrics, Evaluator
 
 from egg.core import EarlyStopperAccuracy
 
@@ -178,7 +178,7 @@ def main(params):
                                            receiver_entropy_coeff=0.0, length_cost=0.0, baseline_type=baseline)
     optimizer = torch.optim.Adam(game.parameters(), lr=opts.lr)
 
-    metrics_evaluator = Metrics(validation.examples, opts.device, opts.n_attributes,
+    metrics_evaluator = MMMetrics(validation.examples, opts.device, opts.n_attributes,
                                 opts.n_values, opts.vocab_size + 1, freq=opts.stats_freq)
 
     loaders = []

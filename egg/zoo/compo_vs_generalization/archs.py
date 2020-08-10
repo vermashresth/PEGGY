@@ -37,28 +37,32 @@ class SplitWrapper(nn.Module):
 class Receiver(nn.Module):
     def __init__(self, n_outputs, n_hidden):
         super(Receiver, self).__init__()
-        self.fc = nn.Linear(n_hidden, n_outputs)
+        self.fc1 = nn.Linear(n_hidden, n_hidden)
+        self.fc2 = nn.Linear(n_hidden, n_outputs)
 
     def forward(self, x, _):
-        return self.fc(x)
+        return self.fc2(self.fc1(x))
 
 
 class Sender(nn.Module):
     def __init__(self, n_inputs, n_hidden):
         super(Sender, self).__init__()
         self.fc1 = nn.Linear(n_inputs, n_hidden)
+        self.fc2 = nn.Linear(n_hidden, n_hidden)
 
     def forward(self, x):
-        x = self.fc1(x)
-        return x
+        x1 = self.fc1(x)
+        x2 = self.fc2(x1)
+        return x2
 
 class MMReceiver(nn.Module):
     def __init__(self, n_outputs, n_hidden):
         super(MMReceiver, self).__init__()
-        self.fc = nn.Linear(2*n_hidden, n_outputs)
+        self.fc1 = nn.Linear(2*n_hidden, n_hidden)
+        self.fc2 = nn.Linear(n_hidden, n_outputs)
 
     def forward(self, x, _):
-        return self.fc(x)
+        return self.fc2(self.fc1(x))
 
 
 class MMSender(nn.Module):
@@ -141,7 +145,7 @@ class PlusNWrapper(nn.Module):
 
     def forward(self, *input):
         r1, r2, r3 = self.wrapped(*input)
-        return r1 + N, r2, r3
+        return r1 + self.N, r2, r3
 
 class PlusOneWrapper(nn.Module):
     def __init__(self, wrapped):

@@ -161,7 +161,8 @@ def main(params):
         sender2 = core.RnnSenderReinforce(agent=s2, vocab_size=opts.vocab_size,
                                          embed_dim=opts.sender_emb, hidden_size=opts.sender_hidden, max_len=opts.max_len, force_eos=False,
                                          cell=opts.sender_cell)
-        sender2 = PlusNWrapper(sender2, opts.vocab_size + 1)
+        # sender2 = PlusNWrapper(sender2, opts.vocab_size + 1)
+        sender2 = PlusNWrapper(sender2, 1)
         sender = CombineMMRnnSenderReinforce(sender1, sender2)
     else:
         raise ValueError(f'Unknown sender cell, {opts.sender_cell}')
@@ -249,12 +250,12 @@ def main(params):
         def small_gru_receiver_generator(): return \
             core.MMRnnReceiverDeterministic(
                 MMReceiver(n_hidden=50, n_outputs=n_dim),
-                opts.vocab_size + 1, opts.receiver_emb, hidden_size=100, cell='gru')
+                opts.vocab_size + 1, opts.receiver_emb, hidden_size=50, cell='gru')
 
         def tiny_gru_receiver_generator(): return \
             core.MMRnnReceiverDeterministic(
                 MMReceiver(n_hidden=25, n_outputs=n_dim),
-                opts.vocab_size + 1, opts.receiver_emb, hidden_size=50, cell='gru')
+                opts.vocab_size + 1, opts.receiver_emb, hidden_size=25, cell='gru')
 
         def nonlinear_receiver_generator(): return \
             MMNonLinearReceiver(n_outputs=n_dim, vocab_size=opts.vocab_size + 1,

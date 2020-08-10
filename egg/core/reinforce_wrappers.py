@@ -451,7 +451,7 @@ class MMRnnReceiverDeterministic(nn.Module):
 
     def forward(self, message, input=None, lengths=None):
         message1, message2 = torch.split(message, 2, dim=1)
-        encoded1 = self.encoder2(message1)
+        encoded1 = self.encoder1(message1)
         encoded2 = self.encoder2(message2)
         encoded = torch.cat([encoded1, encoded2], dim=1)
         agent_output = self.agent(encoded, input)

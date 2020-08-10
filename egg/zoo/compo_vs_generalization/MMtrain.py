@@ -13,7 +13,7 @@ import egg.core as core
 from egg.zoo.compo_vs_generalization.data import ScaledDataset, enumerate_attribute_value, split_train_test, one_hotify, split_holdout, \
     select_subset_V1, select_subset_V2
 from egg.zoo.compo_vs_generalization.archs import MMSender, MMReceiver, \
-    Freezer, PlusOneWrapper, MMNonLinearReceiver, CombineMMRnnSenderReinforce, SplitWrapper
+    Freezer, PlusNWrapper, MMNonLinearReceiver, CombineMMRnnSenderReinforce, SplitWrapper
 from egg.zoo.compo_vs_generalization.intervention import Metrics, Evaluator
 
 from egg.core import EarlyStopperAccuracy
@@ -157,14 +157,16 @@ def main(params):
         sender1 = core.RnnSenderReinforce(agent=s1, vocab_size=opts.vocab_size,
                                          embed_dim=opts.sender_emb, hidden_size=opts.sender_hidden, max_len=opts.max_len, force_eos=False,
                                          cell=opts.sender_cell)
+        sender1 = PlusNWrapper(sender1, 1)
         sender2 = core.RnnSenderReinforce(agent=s2, vocab_size=opts.vocab_size,
                                          embed_dim=opts.sender_emb, hidden_size=opts.sender_hidden, max_len=opts.max_len, force_eos=False,
                                          cell=opts.sender_cell)
+        sender2 = PlusNWrapper(sender2, opts.vocab_size + 1)
         sender = CombineMMRnnSenderReinforce(sender1, sender2)
     else:
         raise ValueError(f'Unknown sender cell, {opts.sender_cell}')
 
-    sender = PlusOneWrapper(sender)
+
     loss = DiffLoss(opts.n_attributes, opts.n_values)
 
     baseline = {'no': core.baselines.NoBaseline,

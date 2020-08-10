@@ -133,6 +133,15 @@ class Freezer(nn.Module):
             r = self.wrapped(*input)
         return r
 
+class PlusNWrapper(nn.Module):
+    def __init__(self, wrapped, N):
+        super().__init__()
+        self.wrapped = wrapped
+        self.N = N
+
+    def forward(self, *input):
+        r1, r2, r3 = self.wrapped(*input)
+        return r1 + N, r2, r3
 
 class PlusOneWrapper(nn.Module):
     def __init__(self, wrapped):

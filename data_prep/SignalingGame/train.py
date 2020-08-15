@@ -296,5 +296,9 @@ def create_validation():
                         "val_images_indexes_receiver"+suffix, "wb" ) )
 
 if __name__ == "__main__":
-    train()
-    # create_validation()
+    opt = parse_arguments()
+    if opt.valgen:
+        create_validation()
+    else:
+        train()
+    # 

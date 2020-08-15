@@ -89,6 +89,8 @@ def parse_arguments():
                         help='If 0, agents see the same images')
     parser.add_argument('--inf_rec', type=int, default=0,
                         help='Use informed receiver')
+    parser.add_argument('--valgen', type=int, default=0,
+                        help='Generate validation data')
     opt = parser.parse_args()
 
     if opt.root == '':

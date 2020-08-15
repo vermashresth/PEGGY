@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from architectures import InformedSender, Receiver, InformedReceiver, Players, Baseline
+from architectures import InformedSender, Receiver, InformedReceiver, MMInformedReceiver, Players, Baseline
 from torch.autograd import Variable
 import pdb
 from reinforce_utils import *
@@ -132,9 +132,14 @@ def train():
     print(loader.dataset.data_tensor.shape)
     opt.feat_size = loader.dataset.data_tensor.shape[-1]
 
-    sender = InformedSender(opt.game_size, opt.feat_size,
-        opt.embedding_size, opt.hidden_size, opt.vocab_size,
-        temp=opt.tau_s,eps=opt.eps)
+    if opt.multi_layer:
+        sender = MMInformedSender(opt.game_size, opt.feat_size,
+            opt.embedding_size, opt.hidden_size, opt.vocab_size,
+            temp=opt.tau_s,eps=opt.eps)
+    else:
+        sender = InformedSender(opt.game_size, opt.feat_size,
+            opt.embedding_size, opt.hidden_size, opt.vocab_size,
+            temp=opt.tau_s,eps=opt.eps)
     if opt.inf_rec:
         print("Using informed receiver")
         receiver = InformedReceiver(opt.game_size, opt.feat_size,
@@ -302,4 +307,4 @@ if __name__ == "__main__":
         create_validation()
     else:
         train()
-    # 
+    #

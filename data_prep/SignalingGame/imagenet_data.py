@@ -25,6 +25,7 @@ def produce_vgg_features(data='path/to/your/images',
     save='path/to/save/processed/images',
     bn=False,
     sftmax=0,
+    multi_layer_message=0,
     partition='train/'):
     print(bn,sftmax,partition)
     data_folder = os.path.join(data,partition)
@@ -53,12 +54,16 @@ def produce_vgg_features(data='path/to/your/images',
         vgg = models.vgg19(pretrained=True)
     else:
         vgg = models.vgg19_bn(pretrained=True)
-    if not sftmax:
-        network = VGGSecondtoLast(vgg)
-        n_features = 4096
+    if multi_layer_message:
+        network = MixedLayers(vgg)
+        n_features = 2910208
     else:
-        network = vgg
-        n_features = 1000
+        if not sftmax:
+            network = VGGSecondtoLast(vgg)
+            n_features = 4096
+        else:
+            network = vgg
+            n_features = 1000
     # EVAL MODE to disable dropout and bn (if used)
     network.eval()
     network.cuda()
@@ -104,6 +109,24 @@ def produce_vgg_features(data='path/to/your/images',
         pickle.dump(np.array(img_path_idx),f, pickle.HIGHEST_PROTOCOL)
 
     print("Done")
+
+class MixedLayers(nn.Module):
+    def __init__(self, original_model):
+        super(MixedLayers, self).__init__()
+        self.features0 = nn.Sequential(*list(original_model.features)[:9])
+        self.features1 = nn.Sequential(*list(original_model.features)[:18])
+        self.features2 = nn.Sequential(*list(original_model.features)[:27])
+        self.features3 = nn.Sequential(*list(original_model.features)[:36])
+        # self.classifier = nn.Sequential(*list(original_model.classifier)[:-3])
+
+    def forward(self, x):
+        x0 = torch.flatten(self.features0(x))
+        x1 = torch.flatten(self.features1(x))
+        x2 = torch.flatten(self.features2(x))
+        x3 = torch.flatten(self.features3(x))
+        # x = x.view(x.size(0), -1)
+        # x = self.classifier(x)
+        return torch.cat([x0,x1,x2,x3], dim=-1)
 
 class VGGSecondtoLast(nn.Module):
     def __init__(self, original_model):

@@ -91,6 +91,8 @@ def parse_arguments():
                         help='Use informed receiver')
     parser.add_argument('--valgen', type=int, default=0,
                         help='Generate validation data')
+    parser.add_argument('--multi_layer', type=int, default=0,
+                        help='Generate Messages from multiple layer')
     opt = parser.parse_args()
 
     if opt.root == '':

@@ -34,6 +34,99 @@ class Players(nn.Module):
         return one_hot_signal,sender_probs,one_hot_output,receiver_probs,\
                     s_emb,r_emb
 
+class MMInformedSender(nn.Module):
+    def __init__(self, game_size, feat_size, embedding_size, hidden_size,
+        vocab_size=100, temp=1., eps=1e-8):
+        super(MMInformedSender, self).__init__()
+        self.eps = eps
+        self.game_size = game_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.given_vocab_size = vocab_size
+        self.vocab_size = int(vocab_size**(1/4))
+        self.temp = temp
+        self.sub_layers = 4
+        #TODO: here we have embedding_size biases, that will then be in the
+        #kernel convolution
+        self.lin1 = [nn.Linear(feat_size,embedding_size, bias=False) for i in range(self.sub_layers)]
+        #TODO: here we have hidden_size biases, that will then be in the
+        #kernel convolution
+        self.conv2 = [nn.Conv2d(1,hidden_size,
+            kernel_size=(game_size,1),
+            stride=(game_size,1), bias=False) for i in range(self.sub_layers)]
+        #TODO: here we have 1 bias
+        self.conv3 = [nn.Conv2d(1,1,
+            kernel_size=(hidden_size,1),
+            stride=(hidden_size,1), bias=False) for i in range(self.sub_layers)]
+        self.lin4 = [nn.Linear(embedding_size, vocab_size, bias=False) for i in range(self.sub_layers)]
+        print("init sender")
+        self.apply(init_weights)
+
+    def forward(self, x, return_embeddings=False):
+        # embed each image (left or right)
+        embs = self.return_embeddings(x)
+
+        probs = []
+        for id, emb in enumerate(embs):
+            # in: h of size (batch_size, 1, game_size, embedding_size)
+            # out: h of size (batch_size, hidden_size, 1, embedding_size)
+            h = self.conv2[id](emb)
+            h = F.sigmoid(h)
+            # in: h of size (batch_size, hidden_size, 1, embedding_size)
+            # out: h of size (batch_size, 1, hidden_size, embedding_size)
+            h = h.transpose(1,2)
+            h = self.conv3[id](h)
+            # h of size (batch_size, 1, 1, embedding_size)
+            h = F.sigmoid(h)
+            h = h.squeeze(dim=1)
+            h = h.squeeze(dim=1)
+            # h of size (batch_size, embedding_size)
+            h = self.lin4[id](h)
+            h = h.mul(1./self.temp)
+            # h of size (batch_size, vocab_size)
+            h = F.softmax(h, dim=1)
+            probs.append(h)
+        p1 = probs[0][:, :, None] @ probs[1][:, None, :]
+        p1 = torch.flatten(p1, -2)
+        p2 = p1 @ probs[2][:, None, :]
+        p2 = torch.flatten(p2, -2)
+        p3 = p2 @ probs[3][:, None, :]
+        p3 = torch.flatten(p3, -2)
+
+        return p3, torch.cat(embs, dim=-1)
+
+    def return_embeddings(self, x, low=None):
+        # embed each image (left or right)
+
+        split_sizes = [[1605632], [802816], [401408], [100352]]
+        outs = []
+        for j in range(self.sub_layers):
+            embs = []
+            for i in range(self.game_size):
+                h = torch.split(x[i], split_sizes, dim=-1)[j]
+                if len(h.size())== 3:
+                    h = h.squeeze(dim=-1)
+                h_i = self.lin1[j](h)
+                #h_i are batch_size x embedding_size
+                h_i = h_i.unsqueeze(dim=1)
+                h_i = h_i.unsqueeze(dim=1)
+                #h_i are now batch_size x 1 x 1 x embedding_size
+                embs.append(h_i)
+            # concatenate the embeddings
+            h = torch.cat(embs,dim=2)
+        outs.append(h)
+        return outs[0], outs[1], outs[2], outs[3]
+
+    def return_similarities(self, embs):
+
+        batch_size = embs.size(0)
+        sims = torch.zeros(batch_size).double()
+        space = embs.squeeze(1)
+        normalized=space/(torch.norm(space,p=2,dim=2,keepdim=True))
+        pairwise_cosines_matrix=torch.bmm(normalized,normalized.transpose(1,2))
+        sims = pairwise_cosines_matrix[:,0,1]
+        return sims
+
 class InformedSender(nn.Module):
     def __init__(self, game_size, feat_size, embedding_size, hidden_size,
         vocab_size=100, temp=1., eps=1e-8):

@@ -255,6 +255,7 @@ def train():
             model_save_name = os.path.join(opt.outf,'players' +
                                     suffix + '_i%d.pt'%i_games)
             torch.save(players.state_dict(), model_save_name)
+            print("Game: {}, Mean loss: {}, mean reward: {}, symbols used: {}".format(i_games, mean_loss, mean_reward, n_used_symbols))
 
     rewards_save_name = os.path.join(opt.outf,'rewards'+suffix)
     np.save(rewards_save_name, loss_all.numpy())

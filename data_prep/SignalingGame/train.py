@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from architectures import InformedSender, Receiver, InformedReceiver, MMInformedReceiver, Players, Baseline
+from architectures import InformedSender, MMInformedSender, Receiver, InformedReceiver, Players, Baseline
 from torch.autograd import Variable
 import pdb
 from reinforce_utils import *

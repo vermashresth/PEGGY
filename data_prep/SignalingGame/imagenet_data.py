@@ -25,7 +25,7 @@ def produce_vgg_features(data='path/to/your/images',
     save='path/to/save/processed/images',
     bn=False,
     sftmax=0,
-    multi_layer_message=0,
+    multi_layer=0,
     partition='train/'):
     print(bn,sftmax,partition)
     data_folder = os.path.join(data,partition)
@@ -54,7 +54,7 @@ def produce_vgg_features(data='path/to/your/images',
         vgg = models.vgg19(pretrained=True)
     else:
         vgg = models.vgg19_bn(pretrained=True)
-    if multi_layer_message:
+    if multi_layer:
         network = MixedLayers(vgg)
         n_features = 2910208
     else:
@@ -120,10 +120,11 @@ class MixedLayers(nn.Module):
         # self.classifier = nn.Sequential(*list(original_model.classifier)[:-3])
 
     def forward(self, x):
-        x0 = torch.flatten(self.features0(x))
-        x1 = torch.flatten(self.features1(x))
-        x2 = torch.flatten(self.features2(x))
-        x3 = torch.flatten(self.features3(x))
+        x0 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features0(x)))
+        x1 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features1(x)))
+        x2 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features2(x)))
+        x3 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features3(x)))
+        
         # x = x.view(x.size(0), -1)
         # x = self.classifier(x)
         return torch.cat([x0,x1,x2,x3], dim=-1)

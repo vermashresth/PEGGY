@@ -44,11 +44,12 @@ class MMInformedSender(nn.Module):
         self.hidden_size = hidden_size
         self.given_vocab_size = vocab_size
         self.vocab_size = int(vocab_size**(1/4))
+        self.split_sizes = [175232, 82944, 41472, 8192]
         self.temp = temp
         self.sub_layers = 4
         #TODO: here we have embedding_size biases, that will then be in the
         #kernel convolution
-        self.lin1 = [nn.Linear(feat_size,embedding_size, bias=False) for i in range(self.sub_layers)]
+        self.lin1 = [nn.Linear(self.split_sizes[i],embedding_size, bias=False) for i in range(self.sub_layers)]
         #TODO: here we have hidden_size biases, that will then be in the
         #kernel convolution
         self.conv2 = [nn.Conv2d(1,hidden_size,
@@ -98,12 +99,12 @@ class MMInformedSender(nn.Module):
     def return_embeddings(self, x, low=None):
         # embed each image (left or right)
 
-        split_sizes = [[1605632], [802816], [401408], [100352]]
+
         outs = []
         for j in range(self.sub_layers):
             embs = []
             for i in range(self.game_size):
-                h = torch.split(x[i], split_sizes, dim=-1)[j]
+                h = torch.split(x[i], self.split_sizes, dim=-1)[j]
                 if len(h.size())== 3:
                     h = h.squeeze(dim=-1)
                 h_i = self.lin1[j](h)

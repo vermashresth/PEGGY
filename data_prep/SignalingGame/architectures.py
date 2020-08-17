@@ -49,17 +49,17 @@ class MMInformedSender(nn.Module):
         self.sub_layers = 4
         #TODO: here we have embedding_size biases, that will then be in the
         #kernel convolution
-        self.lin1 = [nn.Linear(self.split_sizes[i],embedding_size, bias=False) for i in range(self.sub_layers)]
+        self.lin1 = nn.ModuleList([nn.Linear(self.split_sizes[i],embedding_size, bias=False) for i in range(self.sub_layers)])
         #TODO: here we have hidden_size biases, that will then be in the
         #kernel convolution
-        self.conv2 = [nn.Conv2d(1,hidden_size,
+        self.conv2 = nn.ModuleList([nn.Conv2d(1,hidden_size,
             kernel_size=(game_size,1),
-            stride=(game_size,1), bias=False) for i in range(self.sub_layers)]
+            stride=(game_size,1), bias=False) for i in range(self.sub_layers)])
         #TODO: here we have 1 bias
-        self.conv3 = [nn.Conv2d(1,1,
+        self.conv3 = nn.ModuleList([nn.Conv2d(1,1,
             kernel_size=(hidden_size,1),
-            stride=(hidden_size,1), bias=False) for i in range(self.sub_layers)]
-        self.lin4 = [nn.Linear(embedding_size, vocab_size, bias=False) for i in range(self.sub_layers)]
+            stride=(hidden_size,1), bias=False) for i in range(self.sub_layers)])
+        self.lin4 = nn.ModuleList([nn.Linear(embedding_size, self.vocab_size, bias=False) for i in range(self.sub_layers)])
         print("init sender")
         self.apply(init_weights)
 
@@ -115,7 +115,7 @@ class MMInformedSender(nn.Module):
                 embs.append(h_i)
             # concatenate the embeddings
             h = torch.cat(embs,dim=2)
-        outs.append(h)
+            outs.append(h)
         return outs[0], outs[1], outs[2], outs[3]
 
     def return_similarities(self, embs):

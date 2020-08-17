@@ -56,7 +56,7 @@ def produce_vgg_features(data='path/to/your/images',
         vgg = models.vgg19_bn(pretrained=True)
     if multi_layer:
         network = MixedLayers(vgg)
-        n_features = 2910208
+        n_features = 307840
     else:
         if not sftmax:
             network = VGGSecondtoLast(vgg)
@@ -124,7 +124,7 @@ class MixedLayers(nn.Module):
         x1 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features1(x)))
         x2 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features2(x)))
         x3 = torch.flatten(nn.MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1)(self.features3(x)))
-        
+
         # x = x.view(x.size(0), -1)
         # x = self.classifier(x)
         return torch.cat([x0,x1,x2,x3], dim=-1)

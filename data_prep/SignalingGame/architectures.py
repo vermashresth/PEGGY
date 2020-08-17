@@ -43,10 +43,11 @@ class MMInformedSender(nn.Module):
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
         self.given_vocab_size = vocab_size
-        self.vocab_size = int(vocab_size**(1/4))
+
         self.split_sizes = [175232, 82944, 41472, 8192]
         self.temp = temp
-        self.sub_layers = 4
+        self.sub_layers = len(self.split_sizes)
+        self.vocab_size = int(vocab_size**(1/self.sub_layers))
         #TODO: here we have embedding_size biases, that will then be in the
         #kernel convolution
         self.lin1 = nn.ModuleList([nn.Linear(self.split_sizes[i],embedding_size, bias=False) for i in range(self.sub_layers)])
@@ -89,9 +90,9 @@ class MMInformedSender(nn.Module):
             probs.append(h)
         p1 = probs[0][:, :, None] @ probs[1][:, None, :]
         p1 = torch.flatten(p1, -2)
-        p2 = p1 @ probs[2][:, None, :]
+        p2 = p1[:, :, None] @ probs[2][:, None, :]
         p2 = torch.flatten(p2, -2)
-        p3 = p2 @ probs[3][:, None, :]
+        p3 = p2[:, :, None] @ probs[3][:, None, :]
         p3 = torch.flatten(p3, -2)
 
         return p3, torch.cat(embs, dim=-1)
@@ -116,7 +117,7 @@ class MMInformedSender(nn.Module):
             # concatenate the embeddings
             h = torch.cat(embs,dim=2)
             outs.append(h)
-        return outs[0], outs[1], outs[2], outs[3]
+        return outs
 
     def return_similarities(self, embs):
 

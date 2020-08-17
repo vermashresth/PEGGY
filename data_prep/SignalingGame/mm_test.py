@@ -211,11 +211,7 @@ def noise_pairs(opt,players,testSeed,n_pairs,base,noise):
 def test_noise(opt,n_g,out,game_seeds,chosen_seed=None,noise=0,\
                     test_change=0,seeds=range(100)):
     print(opt)
-    if opt.multi_layer:
-      root1 = "/content/PEGGY/data_prep/my_imagenet_features/val_dataset_peragent/"
-    else:
-      root1 = "/content/PEGGY/data_prep/normal_my_imagenet_features/val_dataset_peragent/"
-
+    root1 = "/content/PEGGY/data_prep/my_imagenet_features/val_dataset_peragent/"
     folder = 'test'
     n_used_comp_in = 4630
     n_used_comp_out = 4610
@@ -233,11 +229,7 @@ def test_noise(opt,n_g,out,game_seeds,chosen_seed=None,noise=0,\
                                 ours=opt.ours, partition='test/')
     print(np.unique(indexes_comp).shape)
     opt.feat_size = loader.dataset.data_tensor.shape[-1]
-    if opt.multi_layer:
-      sender = MMInformedSender(opt.game_size, opt.feat_size,
-        opt.embedding_size, opt.hidden_size, opt.vocab_size, temp=opt.tau_s)
-    else:
-      sender = InformedSender(opt.game_size, opt.feat_size,
+    sender = MMInformedSender(opt.game_size, opt.feat_size,
         opt.embedding_size, opt.hidden_size, opt.vocab_size, temp=opt.tau_s)
     if opt.inf_rec:
         print("Using informed receiver")
@@ -346,4 +338,4 @@ def test_noise_pairs(opt,n_g,out,game_seeds,chosen_seed=None,noise=0):
 
 if __name__ == "__main__":
   opt = parse_arguments()
-  test_noise(opt,20,False, [0, 1, 2, 3, 4, 5, 6, 7], chosen_seed=0,noise=20)
+  test_noise(opt,10,False, [0, 1, 2, 3], chosen_seed=0,noise=2)

@@ -25,7 +25,10 @@ def sender_action(sender, images_vectors, opt):
     sample = torch.multinomial(sender_probs, 1)
 
     sample = sample.squeeze(-1)
-    one_hot_signal = one_hot(sample, sender.given_vocab_size,cuda=opt.cuda)
+    if not opt.multi_layer:
+      one_hot_signal = one_hot(sample, sender.vocab_size,cuda=opt.cuda)
+    else:
+      one_hot_signal = one_hot(sample, sender.given_vocab_size,cuda=opt.cuda)
     one_hot_signal = Variable(one_hot_signal.data, requires_grad = True)
     return one_hot_signal, sender_probs, s_emb
 

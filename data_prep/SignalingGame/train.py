@@ -171,7 +171,7 @@ def train():
             lr=opt.lr, momentum=0.0, dampening=0, weight_decay=0,
             nesterov=False)
     loss_all = torch.zeros(opt.n_games+1)
-    val_acc_history = torch.zeros((opt.n_games+1, 3))
+    val_acc_history = torch.zeros((opt.n_games+1, 6))
 
     suffix = '_sm%d_one%d_v%d_ours%d_seed%d_clip%d_lr%.4f_tau_s%d_same%d_noise%d' \
     %(opt.probs, opt.add_one, opt.vocab_size,
@@ -201,8 +201,8 @@ def train():
         one_hot_signal,sender_probs,one_hot_output,receiver_probs,s_emb,r_emb=\
             players(images_vectors_sender, images_vectors_receiver, opt)
 
-        # s_sims=players.sender.return_similarities(s_emb)
-        # r_sims=players.receiver.return_similarities(r_emb)
+        s_sims=players.sender.return_similarities(s_emb)
+        r_sims=players.receiver.return_similarities(r_emb)
 
         # loss_simi_s = similarity_loss_s(s_sims,sims_im_s)
         # loss_simi_r = similarity_loss_r(r_sims,sims_im_r)
@@ -249,6 +249,17 @@ def train():
 
         optimizer.step()
         if i_games % 100 == 0:
+            # print(s_sims, r_sims)
+            # print(sims_im_r, sims_im_s)
+            rho_r_s= np.corrcoef(s_sims.cpu().detach().numpy(), r_sims.cpu().detach().numpy())[0][1]
+            rho_s_i= np.corrcoef(s_sims.cpu().detach().numpy(), sims_im_s.cpu().detach().numpy())[0][1]
+            rho_r_i= np.corrcoef(r_sims.cpu().detach().numpy(), sims_im_r.cpu().detach().numpy())[0][1]
+
+
+            print("Rho R, S", np.corrcoef(s_sims.cpu().detach().numpy(), r_sims.cpu().detach().numpy())[0][1])
+            print("Rho S, input", np.corrcoef(s_sims.cpu().detach().numpy(), sims_im_s.cpu().detach().numpy())[0][1])
+            print("Rho R, input", np.corrcoef(r_sims.cpu().detach().numpy(), sims_im_r.cpu().detach().numpy())[0][1])
+
             loss_all[i_games] = - rewards_no_grad.mean().item()
             mean_loss, mean_reward, n_used_symbols = eval(opt,
                     loader, players, reward_function, val_z,
@@ -256,6 +267,9 @@ def train():
             val_acc_history[i_games, 0] = mean_loss
             val_acc_history[i_games, 1] = mean_reward
             val_acc_history[i_games, 2] = n_used_symbols
+            val_acc_history[i_games, 3] = rho_r_s
+            val_acc_history[i_games, 4] = rho_s_i
+            val_acc_history[i_games, 5] = rho_r_i
             # save current model
             model_save_name = os.path.join(opt.outf,'players' +
                                     suffix + '_i%d.pt'%i_games)

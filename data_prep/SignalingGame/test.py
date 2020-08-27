@@ -94,7 +94,7 @@ def play(loader,players,opt,indexes_comp,reward_function,n_games,noise):
             im_s, im_r=corrupt_images(y,im_s,im_r,opt,noise)
         signal,_,output, _,s_emb,r_emb = players(im_s,im_r,opt)
         rewards[i_games,:]=reward_function(y.float(),output).float().data.cpu()
-        print("Games: {}, Reward shape: {}, Reward Mean: {}".format(n_games,rewards.shape, rewards.mean()))
+        # print("Games: {}, Reward shape: {}, Reward Mean: {}".format(n_games,rewards.shape, rewards.mean()))
     return rewards,im_s,im_r
 
 def noise_game(opt,players,loader,idx_comp,reward_function,\

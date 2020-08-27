@@ -26,6 +26,7 @@ def produce_vgg_features(data='path/to/your/images',
     bn=False,
     sftmax=0,
     multi_layer=0,
+    random=0,
     partition='train/'):
     print(bn,sftmax,partition)
     data_folder = os.path.join(data,partition)
@@ -64,6 +65,9 @@ def produce_vgg_features(data='path/to/your/images',
         else:
             network = vgg
             n_features = 1000
+    if random:
+        network = RandomNet(random)
+        n_features = random
     # EVAL MODE to disable dropout and bn (if used)
     network.eval()
     network.cuda()
@@ -139,6 +143,16 @@ class VGGSecondtoLast(nn.Module):
         x = self.features(x)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
+        return x
+
+class RandomNet(nn.Module):
+    def __init__(self, random):
+        super(RandomNet, self).__init__()
+        self.dense = nn.Linear(224*224*3, random )
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        x = self.dense(x)
         return x
 
 def features_loader(root="/private/home/dianeb/OURDATA/",

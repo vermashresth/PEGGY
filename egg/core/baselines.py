@@ -63,10 +63,39 @@ class MeanBaseline(Baseline):
             self.mean_baseline = self.mean_baseline.to(loss.device)
         return self.mean_baseline
 
+class BaselineNNModel(nn.Module):
+    def __init__(self, embedding_size, hidden_size):
+        super(BaselineModel, self).__init__()
+        self.lin1 = nn.Linear(embedding_size, hidden_size, bias=False)
+        self.lin2 = nn.Linear(hidden_size, 1, bias=False)
+
+    def forward(self, x):
+        x = self.lin1(x)
+        x = F.relu(self.lin2(h))
+
+        return x
+
+
+class NNBaseline(Baseline):
+    """Predict baseline using NN.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.baseline_model = BaselineNNModel(50, 20)
+
+    def get_loss(self, loss: torch.Tensor) -> None:
+        adv = loss - self.pred
+        return 0.5 * adv.pow(2).mean()
+
+
+    def predict(self, states: torch.Tensor) -> torch.Tensor:
+        self.pred =  self.baseline_model(states)
+        return torch.FloatTensor(self.pred)
 
 class BuiltInBaseline(Baseline):
     """Built-in baseline; for any row in the batch, the mean of all other rows serves as a control variate.
-    To use BuiltInBaseline, rows in the batch must be independent. Most likely BuiltInBaseline 
+    To use BuiltInBaseline, rows in the batch must be independent. Most likely BuiltInBaseline
     would work poorly for small batch sizes.
     """
 

@@ -43,6 +43,7 @@ class InformedSender(nn.Module):
         h = torch.sigmoid(h)
         h = h.squeeze(dim=1)
         h = h.squeeze(dim=1)
+        self.final_encoded_state = h.view(h.size(0), -1)
         # h of size (batch_size, embedding_size)
         h = self.lin4(h)
         h = h.mul(1./self.temp)
@@ -50,6 +51,9 @@ class InformedSender(nn.Module):
         logits = F.log_softmax(h, dim=1)
 
         return logits
+
+    def return_final_encodings(self):
+        return self.final_encoded_state
 
     def return_embeddings(self, x):
         # embed each image (left or right)

@@ -7,7 +7,8 @@ from abc import abstractmethod, ABC
 from collections import defaultdict
 
 import torch
-
+import torch.nn as nn
+import torch.nn.functional as F
 
 class Baseline(ABC):
     @abstractmethod
@@ -65,13 +66,13 @@ class MeanBaseline(Baseline):
 
 class BaselineNNModel(nn.Module):
     def __init__(self, embedding_size, hidden_size):
-        super(BaselineModel, self).__init__()
+        super(BaselineNNModel, self).__init__()
         self.lin1 = nn.Linear(embedding_size, hidden_size, bias=False)
         self.lin2 = nn.Linear(hidden_size, 1, bias=False)
 
     def forward(self, x):
         x = self.lin1(x)
-        x = F.relu(self.lin2(h))
+        x = F.relu(self.lin2(x))
 
         return x
 
@@ -83,15 +84,18 @@ class NNBaseline(Baseline):
     def __init__(self):
         super().__init__()
         self.baseline_model = BaselineNNModel(50, 20)
+        self.baseline_model.cuda()
 
     def get_loss(self, loss: torch.Tensor) -> None:
-        adv = loss - self.pred
+        adv = loss.detach() - self.pred
         return 0.5 * adv.pow(2).mean()
 
+    def update(self):
+        pass
 
     def predict(self, states: torch.Tensor) -> torch.Tensor:
         self.pred =  self.baseline_model(states)
-        return torch.FloatTensor(self.pred)
+        return self.pred.detach()
 
 class BuiltInBaseline(Baseline):
     """Built-in baseline; for any row in the batch, the mean of all other rows serves as a control variate.

@@ -743,7 +743,7 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         :param length_cost: the penalty applied to Sender for each symbol produced
         :param baseline_type: Callable, returns a baseline instance (eg a class specializing core.baselines.Baseline)
         """
-        super(PopSenderReceiverRnnReinforce, self).__init__()
+        super(PopUncSenderReceiverRnnReinforce, self).__init__()
         self.sender_list = nn.ModuleList(sender_list)
         self.receiver_list = nn.ModuleList(receiver_list)
         self.pop = pop
@@ -790,12 +790,12 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         policy_length_loss = ((length_loss - self.mean_baselines['length'].predict(length_loss)) * effective_log_prob_s).mean()
         # policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
 
-        policy_loss_s = ((loss.detach() - self.critic_baselines['s_val'].predict(self.sender.return_final_encodings) * effective_log_prob_s).mean()
+        policy_loss_s = ((loss.detach() - self.critic_baselines['s_val'].predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
         # policy_loss_r = ((loss.detach() - self.critic_baselines['r_val'].predict(loss.detach())) * log_prob_r).mean()
         policy_loss_r = ((loss.detach() - self.mean_baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
 
 
-        critic_loss_s = self.baselines['s_val'].get_loss(loss)
+        critic_loss_s = self.critic_baselines['s_val'].get_loss(loss)
         # critic_loss_r = self.baselines['r_val'].get_loss(loss)
 
         optimized_loss = policy_length_loss + policy_loss_s + policy_loss_r - weighted_entropy

@@ -751,9 +751,11 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         self.receiver_entropy_coeff = receiver_entropy_coeff
         self.loss = loss
         self.length_cost = length_cost
-
+        game_size = self.sender_list[0].game_size
+        embedding_size = self.sender_list[0].embedding_size
+        hidden_size = self.sender_list[0].hidden_size
         self.mean_baselines = defaultdict(baseline_type)
-        self.critic_baselines = defaultdict(critic_type)
+        self.critic_baselines = {'s_vf':critic_type(embedding_size), 'r_vf':critic_type(game_size, 2)}
 
     def forward(self, sender_input, labels, receiver_input=None):
         index = np.random.choice(range(self.pop))
@@ -790,23 +792,23 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         policy_length_loss = ((length_loss - self.mean_baselines['length'].predict(length_loss)) * effective_log_prob_s).mean()
         # policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
 
-        policy_loss_s = ((loss.detach() - self.critic_baselines['s_val'].predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
-        # policy_loss_r = ((loss.detach() - self.critic_baselines['r_val'].predict(loss.detach())) * log_prob_r).mean()
-        policy_loss_r = ((loss.detach() - self.mean_baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
+        policy_loss_s = ((loss.detach() - self.critic_baselines['s_vf'].predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
+        # policy_loss_r = ((loss.detach() - self.critic_baselines['r_vf'].predict(loss.detach())) * log_prob_r).mean()
+        policy_loss_r = ((loss.detach() - self.critic_baselines['r_vf'].predict(self.receiver.agent.return_final_encodings())) * log_prob_r).mean()
 
 
-        critic_loss_s = self.critic_baselines['s_val'].get_loss(loss)
-        # critic_loss_r = self.baselines['r_val'].get_loss(loss)
+        critic_loss_s = self.critic_baselines['s_vf'].get_loss(loss)
+        critic_loss_r = self.critic_baselines['r_vf'].get_loss(loss)
 
         optimized_loss = policy_length_loss + policy_loss_s + policy_loss_r - weighted_entropy
-        # optimized_loss += critic_loss_s + critic_loss_r
-        optimized_loss += critic_loss_s
+        optimized_loss += critic_loss_s + critic_loss_r
+        # optimized_loss += critic_loss_s
 
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
 
         if self.training:
-            self.mean_baselines['loss'].update(loss)
+            # self.mean_baselines['loss'].update(loss)
             self.mean_baselines['length'].update(length_loss)
 
         for k, v in rest.items():

@@ -81,9 +81,9 @@ class NNBaseline(Baseline):
     """Predict baseline using NN.
     """
 
-    def __init__(self):
+    def __init__(self, embedding_size, hidden_size ):
         super().__init__()
-        self.baseline_model = BaselineNNModel(50, 20)
+        self.baseline_model = BaselineNNModel(embedding_size, hidden_size)
         self.baseline_model.cuda()
 
     def get_loss(self, loss: torch.Tensor) -> None:

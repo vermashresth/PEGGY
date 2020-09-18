@@ -99,12 +99,16 @@ class MyReceiver(nn.Module):
         # out is of size batch_size x game_size x 1
         out = out.squeeze(dim=-1)
         # out is of size batch_size x game_size
+        self.final_encoded_state = out
         log_probs = F.log_softmax(out, dim=1)
         distr = Categorical(logits=log_probs)
         entropy = distr.entropy()
         sample =  distr.sample()
         logit = distr.log_prob(sample)
         return sample, logit, entropy
+
+    def return_final_encodings(self):
+        return self.final_encoded_state
 
     def return_embeddings(self, x):
         # embed each image (left or right)

@@ -17,6 +17,7 @@ from .transformer import TransformerEncoder, TransformerDecoder
 from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 
+import wandb
 
 class ReinforceWrapper(nn.Module):
     """
@@ -724,7 +725,7 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
     5.0
     """
     def __init__(self, sender_list, receiver_list, pop, loss, sender_entropy_coeff, receiver_entropy_coeff,
-                 length_cost=0.0, baseline_type=MeanBaseline, critic_type=NNBaseline):
+                 use_critic_baseline=False, length_cost=0.0, baseline_type=MeanBaseline, critic_type=NNBaseline):
         """
         :param sender: sender agent
         :param receiver: receiver agent
@@ -751,12 +752,13 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         self.receiver_entropy_coeff = receiver_entropy_coeff
         self.loss = loss
         self.length_cost = length_cost
-        game_size = self.sender_list[0].game_size
-        embedding_size = self.sender_list[0].embedding_size
-        hidden_size = self.sender_list[0].hidden_size
+        self.use_critic_baseline = use_critic_baseline
+        game_size = self.sender_list[0].agent.game_size
+        embedding_size = self.sender_list[0].agent.embedding_size
+        hidden_size = self.sender_list[0].agent.hidden_size
         self.mean_baselines = [defaultdict(baseline_type) for _ in range(pop)]
-        self.s_critics = nn.ModuleList([critic_type(embedding_size, hidden_size) for _ in range(pop)])
-        self.r_critics = nn.ModuleList([critic_type(game_size, 2) for _ in range(pop)])
+        self.s_critics = [critic_type(embedding_size, hidden_size) for _ in range(pop)]
+        self.r_critics = [critic_type(game_size, 2) for _ in range(pop)]
 
     def forward(self, sender_input, labels, receiver_input=None):
         index = np.random.choice(range(self.pop))
@@ -794,25 +796,36 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         length_loss = message_lengths.float() * self.length_cost
 
         policy_length_loss = ((length_loss - self.mean_baseline['length'].predict(length_loss)) * effective_log_prob_s).mean()
-        # policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
+        if not self.use_critic_baseline:
+            policy_loss = ((loss.detach() - self.mean_baseline['loss'].predict(loss.detach())) * log_prob).mean()
+        else:
+            policy_loss_s = ((loss.detach() - self.s_critic.predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
+            policy_loss_r = ((loss.detach() - self.r_critic.predict(self.receiver.agent.return_final_encodings())) * log_prob_r).mean()
 
-        policy_loss_s = ((loss.detach() - self.s_critic.predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
-        # policy_loss_r = ((loss.detach() - self.critic_baselines['r_vf'].predict(loss.detach())) * log_prob_r).mean()
-        policy_loss_r = ((loss.detach() - self.r_critic.predict(self.receiver.agent.return_final_encodings())) * log_prob_r).mean()
-
-
+        _ = self.s_critic.predict(self.sender.agent.return_final_encodings())
+        _ = self.r_critic.predict(self.receiver.agent.return_final_encodings())
         critic_loss_s = self.s_critic.get_loss(loss)
         critic_loss_r = self.r_critic.get_loss(loss)
 
-        optimized_loss = policy_length_loss + policy_loss_s + policy_loss_r - weighted_entropy
-        optimized_loss += critic_loss_s + critic_loss_r
+        if not self.use_critic_baseline:
+            optimized_loss = policy_length_loss + policy_loss - weighted_entropy
+        else:
+            optimized_loss = policy_length_loss + policy_loss_s + policy_loss_r - weighted_entropy
+
+        critic_losses = critic_loss_s + critic_loss_r
+        optimized_loss += critic_losses
+        if not self.use_critic_baseline:
+            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
+        else:
+            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
         # optimized_loss += critic_loss_s
 
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
 
         if self.training:
-            # self.mean_baselines['loss'].update(loss)
+            if not self.use_critic_baseline:
+                self.mean_baseline['loss'].update(loss)
             self.mean_baseline['length'].update(length_loss)
 
         for k, v in rest.items():

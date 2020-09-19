@@ -10,6 +10,7 @@ import egg.core as core
 from egg.zoo.population_signal_game.features import ImageNetFeat, ImagenetLoader
 from egg.zoo.population_signal_game.archs import InformedSender, MyReceiver, Receiver
 
+import wandb
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -34,6 +35,10 @@ def parse_arguments():
                         help='Use informed receiver')
     parser.add_argument('--mode', type=str, default='rf',
                         help='Training mode: Gumbel-Softmax (gs) or Reinforce (rf). Default: rf.')
+    parser.add_argument('--pop_mode', type=int, default=0,
+                        help='0:simple, 1:crit aux, 2: crit baseline')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='0, 1, 2, ...')
     parser.add_argument('--gs_tau', type=float, default=1.0,
                         help='GS temperature')
 
@@ -108,8 +113,17 @@ def get_my_game(opt):
         receiver_list.append(receiver)
 
     if opts.mode == 'rf':
-        game = core.PopSenderReceiverRnnReinforce(
-            sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+        if opts.pop_mode == 0:
+            game = core.PopSenderReceiverRnnReinforce(
+                sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+        elif opts.pop_mode == 1:
+            game = core.PopUncSenderReceiverRnnReinforce(
+                sender_list, receiver_list, pop, loss, use_critic_baseline=False, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+        else:
+            game = core.PopUncSenderReceiverRnnReinforce(
+                sender_list, receiver_list, pop, loss, use_critic_baseline=True, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+
+
     elif opts.mode == 'gs':
         game = core.PopSymbolGameGS(sender_list, receiver_list, pop, loss_nll)
     else:
@@ -120,6 +134,8 @@ def get_my_game(opt):
 
 if __name__ == '__main__':
     opts = parse_arguments()
+    wandb.init(project="referential-advice", name='popexp_seed-{}_size-{}_mode-{}'.format(opts.seed, opts.pop_size, opts.pop_mode))
+    wandb.config.exp_id = 'popexp_size-{}_mode-{}'.format(opts.pop_size, opts.pop_mode)
 
     data_folder = os.path.join(opts.root, "train/")
     dataset = ImageNetFeat(root=data_folder)

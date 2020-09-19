@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import wandb
+
 class Baseline(ABC):
     @abstractmethod
     def update(self, loss: torch.Tensor) -> None:
@@ -65,15 +67,17 @@ class MeanBaseline(Baseline):
         return self.mean_baseline
 
 class BaselineNNModel(nn.Module):
-    def __init__(self, embedding_size, hidden_size):
+    def __init__(self, embedding_size, hidden_size, n_heads = 1):
         super(BaselineNNModel, self).__init__()
         self.lin1 = nn.Linear(embedding_size, hidden_size, bias=False)
-        self.lin2 = nn.Linear(hidden_size, 1, bias=False)
+        self.lin2 = nn.Linear(hidden_size, n_heads, bias=False)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(self.lin2(x))
-
+        self.unc = x.var(dim=-1)
+        wandb.log({'uncertainity': self.unc})
+        x = x.mean(dim=-1)
         return x
 
 
@@ -81,7 +85,7 @@ class NNBaseline(Baseline):
     """Predict baseline using NN.
     """
 
-    def __init__(self, embedding_size, hidden_size ):
+    def __init__(self, embedding_size, hidden_size):
         super().__init__()
         self.baseline_model = BaselineNNModel(embedding_size, hidden_size)
         self.baseline_model.cuda()

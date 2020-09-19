@@ -676,6 +676,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         optimized_loss = policy_length_loss + policy_loss - weighted_entropy
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
+        wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()})
 
         if self.training:
             self.baselines['loss'].update(loss)

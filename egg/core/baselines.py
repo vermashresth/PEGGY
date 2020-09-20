@@ -9,6 +9,7 @@ from collections import defaultdict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 import wandb
 
@@ -74,7 +75,7 @@ class BaselineNNModel(nn.Module):
 
     def forward(self, x):
         x = self.lin1(x)
-        x = F.relu(self.lin2(x))
+        x = F.leaky_relu(self.lin2(x))
         self.unc = x.var(dim=-1)
         wandb.log({'uncertainity': self.unc.mean()})
         x = x.mean(dim=-1)
@@ -87,25 +88,29 @@ class NNBaseline(Baseline):
 
     def __init__(self, embedding_size, hidden_size):
         super().__init__()
+        if hidden_size==2:
+            self.t = 'r'
+        else:
+            self.t = 's'
         self.baseline_model = BaselineNNModel(embedding_size, hidden_size)
         self.baseline_model.cuda()
 
     def get_loss(self, loss: torch.Tensor) -> None:
         adv = -loss.detach() - self.pred
-        tmp_pred = np.zeros(loss.detach().numpy.shape)
-        tmp_pred[-loss.detach().numpy.shape==1]=0.9
+        tmp_pred = np.zeros(loss.detach().cpu().numpy().shape)
+        tmp_pred[-loss.detach().cpu().numpy()==1]=0.9
         tmp_pred = torch.Tensor(tmp_pred)
-        tmp_loss = -loss.detach() - tmp_pred
+        tmp_loss = -loss.detach().cpu() - tmp_pred
         tmp_loss = 0.5*tmp_loss.pow(2).mean()
         wandb.log({'tmp_loss':tmp_loss})
-        print('loss {}, pred {}, adv {}'.format(loss.cpu().numpy()[0], self.pred.cpu().numpy()[0], adv.cpu().numpy()[0]))
+        print('{} loss {}, pred {}, adv {}'.format(self.t, loss.detach().cpu().numpy()[0], self.pred.detach().cpu().numpy()[0], adv.detach().cpu().numpy()[0]))
         return 0.5 * adv.pow(2).mean()
 
     def update(self):
         pass
 
     def predict(self, states: torch.Tensor) -> torch.Tensor:
-        self.pred =  self.baseline_model(states)
+        self.pred =  self.baseline_model(states.detach())
         return self.pred.detach()
 
 class BuiltInBaseline(Baseline):

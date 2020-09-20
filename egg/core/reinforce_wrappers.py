@@ -800,10 +800,10 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         if not self.use_critic_baseline:
             policy_loss = ((loss.detach() - self.mean_baseline['loss'].predict(loss.detach())) * log_prob).mean()
         else:
-            policy_loss_s = ((loss.detach() - self.s_critic.predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
-            policy_loss_r = ((loss.detach() - self.r_critic.predict(self.receiver.agent.return_final_encodings())) * log_prob_r).mean()
+            policy_loss_s = ((loss.detach() + self.s_critic.predict(self.sender.agent.return_final_encodings())) * effective_log_prob_s).mean()
+            policy_loss_r = ((loss.detach() + self.r_critic.predict(self.receiver.agent.return_final_encodings())) * log_prob_r).mean()
 
-        _ = self.s_critic.predict(self.sender.agent.return_final_encodings())
+        sc = self.s_critic.predict(self.sender.agent.return_final_encodings())
         _ = self.r_critic.predict(self.receiver.agent.return_final_encodings())
         critic_loss_s = self.s_critic.get_loss(loss)
         critic_loss_r = self.r_critic.get_loss(loss)
@@ -817,8 +817,11 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         optimized_loss += critic_losses
         if not self.use_critic_baseline:
             wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
+            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
         else:
             wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
+            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
+
         # optimized_loss += critic_loss_s
 
         # if the receiver is deterministic/differentiable, we apply the actual loss

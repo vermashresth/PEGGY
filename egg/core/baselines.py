@@ -76,7 +76,7 @@ class BaselineNNModel(nn.Module):
         x = self.lin1(x)
         x = F.relu(self.lin2(x))
         self.unc = x.var(dim=-1)
-        wandb.log({'uncertainity': self.unc})
+        wandb.log({'uncertainity': self.unc.mean()})
         x = x.mean(dim=-1)
         return x
 
@@ -91,7 +91,14 @@ class NNBaseline(Baseline):
         self.baseline_model.cuda()
 
     def get_loss(self, loss: torch.Tensor) -> None:
-        adv = loss.detach() - self.pred
+        adv = -loss.detach() - self.pred
+        tmp_pred = np.zeros(loss.detach().numpy.shape)
+        tmp_pred[-loss.detach().numpy.shape==1]=0.9
+        tmp_pred = torch.Tensor(tmp_pred)
+        tmp_loss = -loss.detach() - tmp_pred
+        tmp_loss = 0.5*tmp_loss.pow(2).mean()
+        wandb.log({'tmp_loss':tmp_loss})
+        print('loss {}, pred {}, adv {}'.format(loss.cpu().numpy()[0], self.pred.cpu().numpy()[0], adv.cpu().numpy()[0]))
         return 0.5 * adv.pow(2).mean()
 
     def update(self):

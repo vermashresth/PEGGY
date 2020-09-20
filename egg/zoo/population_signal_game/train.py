@@ -8,7 +8,7 @@ import argparse
 import torch.nn.functional as F
 import egg.core as core
 from egg.zoo.population_signal_game.features import ImageNetFeat, ImagenetLoader
-from egg.zoo.population_signal_game.archs import InformedSender, MyReceiver, Receiver
+from egg.zoo.population_signal_game.archs import InformedSender,InformedSenderMultiHead, MyReceiver, Receiver
 
 import wandb
 
@@ -41,6 +41,8 @@ def parse_arguments():
                         help='0, 1, 2, ...')
     parser.add_argument('--gs_tau', type=float, default=1.0,
                         help='GS temperature')
+    parser.add_argument('--multi_head', type=int, default=0,
+                        help='0, 1')
 
     opt = core.init(parser)
     assert opt.game_size >= 1
@@ -90,18 +92,23 @@ def get_my_game(opt):
     feat_size = 4096
     out_hidden_size = 20
     emb_size = 10
-    pop = opt.pop_size
+    pop = opts.pop_size
     sender_list = []
     receiver_list = []
     for i in range(pop):
-        sender = InformedSender(opt.game_size, feat_size,
+        if not opts.multi_head:
+            sender = InformedSender(opt.game_size, feat_size,
                                 opt.embedding_size, opt.hidden_size, out_hidden_size,
                                 temp=opt.tau_s)
+        else:
+            sender = InformedSenderMultiHead(opt.game_size, feat_size,
+                                    opt.embedding_size, opt.hidden_size, out_hidden_size,
+                                    temp=opt.tau_s)
         receiver = MyReceiver(opt.game_size, feat_size,
                             opt.embedding_size, out_hidden_size, reinforce=(opts.mode == 'rf'))
 
         if opts.mode == 'rf':
-            sender = core.MyRnnSenderReinforce(sender, opt.vocab_size, emb_size, out_hidden_size,
+            sender = core.MyRnnSenderReinforce(sender, opt.vocab_size, emb_size, out_hidden_size,multi_head=opt.multi_head,
                                        cell="gru", max_len=opt.max_len)
             receiver = core.RnnReceiverReinforce(receiver, opt.vocab_size, emb_size,
                        out_hidden_size, cell="gru")

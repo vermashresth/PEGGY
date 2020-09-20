@@ -9,10 +9,10 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 import wandb
 
-class InformedSender(nn.Module):
+class InformedSenderMultiHead(nn.Module):
     def __init__(self, game_size, feat_size, embedding_size, hidden_size,
                  vocab_size=100, temp=1.):
-        super(InformedSender, self).__init__()
+        super(InformedSenderMultiHead, self).__init__()
         self.game_size = game_size
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
@@ -53,7 +53,71 @@ class InformedSender(nn.Module):
         wandb.log({'cosine unc':self.unc})
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)
-        logits = [F.log_softmax(h1.mul(1./self.temp), dim=1), F.log_softmax(h2.mul(1./self.temp), dim=1)
+        logits = [F.log_softmax(h1.mul(1./self.temp), dim=1), F.log_softmax(h2.mul(1./self.temp), dim=1)]
+
+        return logits
+
+    def return_final_encodings(self):
+        return self.final_encoded_state
+
+    def return_embeddings(self, x):
+        # embed each image (left or right)
+        embs = []
+        for i in range(self.game_size):
+            h = x[i]
+            if len(h.size()) == 3:
+                h = h.squeeze(dim=-1)
+            h_i = self.lin1(h)
+            # h_i are batch_size x embedding_size
+            h_i = h_i.unsqueeze(dim=1)
+            h_i = h_i.unsqueeze(dim=1)
+            # h_i are now batch_size x 1 x 1 x embedding_size
+            embs.append(h_i)
+        # concatenate the embeddings
+        h = torch.cat(embs, dim=2)
+
+        return h
+
+class InformedSender(nn.Module):
+    def __init__(self, game_size, feat_size, embedding_size, hidden_size,
+                 vocab_size=100, temp=1.):
+        super(InformedSender, self).__init__()
+        self.game_size = game_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.vocab_size = vocab_size
+        self.temp = temp
+
+        self.lin1 = nn.Linear(feat_size, embedding_size, bias=False)
+        self.conv2 = nn.Conv2d(1, hidden_size,
+                               kernel_size=(game_size, 1),
+                               stride=(game_size, 1), bias=False)
+        self.conv3 = nn.Conv2d(1, 1,
+                               kernel_size=(hidden_size, 1),
+                               stride=(hidden_size, 1), bias=False)
+        self.lin4 = nn.Linear(embedding_size, vocab_size, bias=False)
+
+    def forward(self, x, return_embeddings=False):
+        emb = self.return_embeddings(x)
+
+        # in: h of size (batch_size, 1, game_size, embedding_size)
+        # out: h of size (batch_size, hidden_size, 1, embedding_size)
+        h = self.conv2(emb)
+        h = torch.sigmoid(h)
+        # in: h of size (batch_size, hidden_size, 1, embedding_size)
+        # out: h of size (batch_size, 1, hidden_size, embedding_size)
+        h = h.transpose(1, 2)
+        h = self.conv3(h)
+        # h of size (batch_size, 1, 1, embedding_size)
+        h = torch.sigmoid(h)
+        h = h.squeeze(dim=1)
+        h = h.squeeze(dim=1)
+        self.final_encoded_state = h.view(h.size(0), -1)
+        # h of size (batch_size, embedding_size)
+        h = self.lin4(h)
+        h = h.mul(1./self.temp)
+        # h of size (batch_size, vocab_size)
+        logits = F.log_softmax(h, dim=1)
 
         return logits
 

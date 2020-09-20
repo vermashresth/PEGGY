@@ -16,8 +16,20 @@ from .rnn import RnnEncoder
 from .transformer import TransformerEncoder, TransformerDecoder
 from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
+from Levenshtein import distance as ld
 
 import wandb
+
+def cal_batch_ld(t1, t2):
+    ar1 = t1.detach().cpu().numpy()
+    ar2 = t2.detach().cpu().numpy()
+    ar1_s = np.apply_along_axis(lambda x: ''.join(map(str,x)),1,ar1)
+    ar2_s = np.apply_along_axis(lambda x: ''.join(map(str,x)),1,ar2)
+
+    tot = np.vstack([ar1_s, ar2_s])
+    batch_ld = np.apply_along_axis(lambda x: ld(x[0],x[1]), 0, tot)
+    mean_ld = np.mean(batch_ld)
+    return mean_ld
 
 class ReinforceWrapper(nn.Module):
     """
@@ -152,7 +164,7 @@ class MyRnnSenderReinforce(nn.Module):
     >>> message.size()  # batch size x max_len
     torch.Size([16, 10])
     """
-    def __init__(self, agent, vocab_size, embed_dim, hidden_size, max_len, num_layers=1, cell='rnn', force_eos=True):
+    def __init__(self, agent, vocab_size, embed_dim, hidden_size, max_len, multi_head=False, num_layers=1, cell='rnn', force_eos=True):
         """
         :param agent: the agent to be wrapped
         :param vocab_size: the communication vocabulary size
@@ -180,6 +192,7 @@ class MyRnnSenderReinforce(nn.Module):
         self.vocab_size = vocab_size
         self.num_layers = num_layers
         self.cells = None
+        self.multi_head = multi_head
 
         cell = cell.lower()
         cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
@@ -198,52 +211,63 @@ class MyRnnSenderReinforce(nn.Module):
         nn.init.normal_(self.sos_embedding, 0.0, 0.01)
 
     def forward(self, x):
-        prev_hidden = [self.agent(x)]
-        prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
+        sequence_list, logits_list, entropy_list = [], [], []
+        agent_outs = self.agent(x)
+        if not self.multi_head:
+            agent_outs = [agent_outs]
+        for output in agent_outs:
+            prev_hidden = [output]
+            prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
 
-        prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
+            prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
 
-        input = torch.stack([self.sos_embedding] * x.size(1))
+            input = torch.stack([self.sos_embedding] * x.size(1))
 
-        sequence = []
-        logits = []
-        entropy = []
+            sequence = []
+            logits = []
+            entropy = []
 
-        for step in range(self.max_len):
-            for i, layer in enumerate(self.cells):
-                if isinstance(layer, nn.LSTMCell):
-                    h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
-                    prev_c[i] = c_t
+            for step in range(self.max_len):
+                for i, layer in enumerate(self.cells):
+                    if isinstance(layer, nn.LSTMCell):
+                        h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
+                        prev_c[i] = c_t
+                    else:
+                        h_t = layer(input, prev_hidden[i])
+                    prev_hidden[i] = h_t
+                    input = h_t
+
+                step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
+                distr = Categorical(logits=step_logits)
+                entropy.append(distr.entropy())
+
+                if self.training:
+                    x_out = distr.sample()
                 else:
-                    h_t = layer(input, prev_hidden[i])
-                prev_hidden[i] = h_t
-                input = h_t
+                    x_out = step_logits.argmax(dim=1)
+                logits.append(distr.log_prob(x_out))
 
-            step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
-            distr = Categorical(logits=step_logits)
-            entropy.append(distr.entropy())
+                input = self.embedding(x_out)
+                sequence.append(x_out)
 
-            if self.training:
-                x = distr.sample()
-            else:
-                x = step_logits.argmax(dim=1)
-            logits.append(distr.log_prob(x))
+            sequence = torch.stack(sequence).permute(1, 0)
+            logits = torch.stack(logits).permute(1, 0)
+            entropy = torch.stack(entropy).permute(1, 0)
 
-            input = self.embedding(x)
-            sequence.append(x)
+            if self.force_eos:
+                zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
 
-        sequence = torch.stack(sequence).permute(1, 0)
-        logits = torch.stack(logits).permute(1, 0)
-        entropy = torch.stack(entropy).permute(1, 0)
-
-        if self.force_eos:
-            zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
-
-            sequence = torch.cat([sequence, zeros.long()], dim=1)
-            logits = torch.cat([logits, zeros], dim=1)
-            entropy = torch.cat([entropy, zeros], dim=1)
-
-        return sequence, logits, entropy
+                sequence = torch.cat([sequence, zeros.long()], dim=1)
+                logits = torch.cat([logits, zeros], dim=1)
+                entropy = torch.cat([entropy, zeros], dim=1)
+            sequence_list.append(sequence)
+            logits_list.append(logits)
+            entropy_list.append(entropy)
+        final_id = np.random.choice(range(len(agent_outs)))
+        # print(sequence_list[0], sequence_list[1])
+        if self.multi_head:
+            wandb.log({'message unc':cal_batch_ld(sequence_list[0], sequence_list[1])})
+        return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
 
 class RnnSenderReinforce(nn.Module):
     """
@@ -309,59 +333,52 @@ class RnnSenderReinforce(nn.Module):
         nn.init.normal_(self.sos_embedding, 0.0, 0.01)
 
     def forward(self, x):
-        sequence_list, logits_list, entropy_list = [], [], []
-        agent_outs = self.agent(x)
-        for output in agent_outs:
-            prev_hidden = [output]
-            prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
+        prev_hidden = [self.agent(x)]
+        prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
 
-            prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
+        prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
 
-            input = torch.stack([self.sos_embedding] * x.size(0))
+        input = torch.stack([self.sos_embedding] * x.size(0))
 
-            sequence = []
-            logits = []
-            entropy = []
+        sequence = []
+        logits = []
+        entropy = []
 
-            for step in range(self.max_len):
-                for i, layer in enumerate(self.cells):
-                    if isinstance(layer, nn.LSTMCell):
-                        h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
-                        prev_c[i] = c_t
-                    else:
-                        h_t = layer(input, prev_hidden[i])
-                    prev_hidden[i] = h_t
-                    input = h_t
-
-                step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
-                distr = Categorical(logits=step_logits)
-                entropy.append(distr.entropy())
-
-                if self.training:
-                    x = distr.sample()
+        for step in range(self.max_len):
+            for i, layer in enumerate(self.cells):
+                if isinstance(layer, nn.LSTMCell):
+                    h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
+                    prev_c[i] = c_t
                 else:
-                    x = step_logits.argmax(dim=1)
-                logits.append(distr.log_prob(x))
+                    h_t = layer(input, prev_hidden[i])
+                prev_hidden[i] = h_t
+                input = h_t
 
-                input = self.embedding(x)
-                sequence.append(x)
+            step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
+            distr = Categorical(logits=step_logits)
+            entropy.append(distr.entropy())
 
-            sequence = torch.stack(sequence).permute(1, 0)
-            logits = torch.stack(logits).permute(1, 0)
-            entropy = torch.stack(entropy).permute(1, 0)
+            if self.training:
+                x = distr.sample()
+            else:
+                x = step_logits.argmax(dim=1)
+            logits.append(distr.log_prob(x))
 
-            if self.force_eos:
-                zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
+            input = self.embedding(x)
+            sequence.append(x)
 
-                sequence = torch.cat([sequence, zeros.long()], dim=1)
-                logits = torch.cat([logits, zeros], dim=1)
-                entropy = torch.cat([entropy, zeros], dim=1)
-            sequence_list.append(sequence)
-            logits_list.append(logits)
-            entropy_list.append(entropy)
-        final_id = np.random.choice(range(len(agent_outs)))
-        print(sequence_list[0], sequence_list[1])
-        return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
+        sequence = torch.stack(sequence).permute(1, 0)
+        logits = torch.stack(logits).permute(1, 0)
+        entropy = torch.stack(entropy).permute(1, 0)
+
+        if self.force_eos:
+            zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
+
+            sequence = torch.cat([sequence, zeros.long()], dim=1)
+            logits = torch.cat([logits, zeros], dim=1)
+            entropy = torch.cat([entropy, zeros], dim=1)
+
+        return sequence, logits, entropy
 
 
 class RnnReceiverReinforce(nn.Module):

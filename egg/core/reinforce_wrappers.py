@@ -309,52 +309,59 @@ class RnnSenderReinforce(nn.Module):
         nn.init.normal_(self.sos_embedding, 0.0, 0.01)
 
     def forward(self, x):
-        prev_hidden = [self.agent(x)]
-        prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
+        sequence_list, logits_list, entropy_list = [], [], []
+        agent_outs = self.agent(x)
+        for output in agent_outs:
+            prev_hidden = [output]
+            prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
 
-        prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
+            prev_c = [torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers)]  # only used for LSTM
 
-        input = torch.stack([self.sos_embedding] * x.size(0))
+            input = torch.stack([self.sos_embedding] * x.size(0))
 
-        sequence = []
-        logits = []
-        entropy = []
+            sequence = []
+            logits = []
+            entropy = []
 
-        for step in range(self.max_len):
-            for i, layer in enumerate(self.cells):
-                if isinstance(layer, nn.LSTMCell):
-                    h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
-                    prev_c[i] = c_t
+            for step in range(self.max_len):
+                for i, layer in enumerate(self.cells):
+                    if isinstance(layer, nn.LSTMCell):
+                        h_t, c_t = layer(input, (prev_hidden[i], prev_c[i]))
+                        prev_c[i] = c_t
+                    else:
+                        h_t = layer(input, prev_hidden[i])
+                    prev_hidden[i] = h_t
+                    input = h_t
+
+                step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
+                distr = Categorical(logits=step_logits)
+                entropy.append(distr.entropy())
+
+                if self.training:
+                    x = distr.sample()
                 else:
-                    h_t = layer(input, prev_hidden[i])
-                prev_hidden[i] = h_t
-                input = h_t
+                    x = step_logits.argmax(dim=1)
+                logits.append(distr.log_prob(x))
 
-            step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
-            distr = Categorical(logits=step_logits)
-            entropy.append(distr.entropy())
+                input = self.embedding(x)
+                sequence.append(x)
 
-            if self.training:
-                x = distr.sample()
-            else:
-                x = step_logits.argmax(dim=1)
-            logits.append(distr.log_prob(x))
+            sequence = torch.stack(sequence).permute(1, 0)
+            logits = torch.stack(logits).permute(1, 0)
+            entropy = torch.stack(entropy).permute(1, 0)
 
-            input = self.embedding(x)
-            sequence.append(x)
+            if self.force_eos:
+                zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
 
-        sequence = torch.stack(sequence).permute(1, 0)
-        logits = torch.stack(logits).permute(1, 0)
-        entropy = torch.stack(entropy).permute(1, 0)
-
-        if self.force_eos:
-            zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
-
-            sequence = torch.cat([sequence, zeros.long()], dim=1)
-            logits = torch.cat([logits, zeros], dim=1)
-            entropy = torch.cat([entropy, zeros], dim=1)
-
-        return sequence, logits, entropy
+                sequence = torch.cat([sequence, zeros.long()], dim=1)
+                logits = torch.cat([logits, zeros], dim=1)
+                entropy = torch.cat([entropy, zeros], dim=1)
+            sequence_list.append(sequence)
+            logits_list.append(logits)
+            entropy_list.append(entropy)
+        final_id = np.random.choice(range(len(agent_outs)))
+        print(sequence_list[0], sequence_list[1])
+        return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
 
 
 class RnnReceiverReinforce(nn.Module):

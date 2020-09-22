@@ -142,8 +142,8 @@ def get_my_game(opt):
 
 if __name__ == '__main__':
     opts = parse_arguments()
-    wandb.init(project="referential-advice", name='popexp_seed-{}_size-{}_mode-{}'.format(opts.seed, opts.pop_size, opts.pop_mode))
-    wandb.config.exp_id = 'popexp_size-{}_mode-{}'.format(opts.pop_size, opts.pop_mode)
+    wandb.init(project="referential-advice", name='pop_seed-{}_size-{}_pop_mode-{}_multi_head-{}'.format(opts.seed, opts.pop_size, opts.pop_mode, opts.multi_head))
+    wandb.config.exp_id = 'pop_size-{}_pop_mode-{}_multi_head-{}'.format(opts.pop_size, opts.pop_mode, opts.multi_head)
 
     data_folder = os.path.join(opts.root, "train/")
     dataset = ImageNetFeat(root=data_folder)

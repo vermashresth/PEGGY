@@ -28,6 +28,7 @@ class InformedSenderMultiHead(nn.Module):
                                stride=(hidden_size, 1), bias=False)
         self.lin4 = nn.Linear(embedding_size, vocab_size, bias=False)
         self.lin5 = nn.Linear(embedding_size, vocab_size, bias=False)
+        self.advice_mode = False
 
     def forward(self, x, return_embeddings=False):
         emb = self.return_embeddings(x)
@@ -48,12 +49,15 @@ class InformedSenderMultiHead(nn.Module):
         # h of size (batch_size, embedding_size)
         h1 = self.lin4(h)
         h2 = self.lin5(h)
-        # h = (h1+h2)/2
+        h = (h1+h2)/2
         self.unc = nn.CosineSimilarity(dim=1)(h1.detach(), h2.detach()).mean()
         wandb.log({'cosine unc':self.unc})
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)
-        logits = [F.log_softmax(h1.mul(1./self.temp), dim=1), F.log_softmax(h2.mul(1./self.temp), dim=1)]
+        if self.advice_mode:
+            logits = [F.log_softmax(h, dim=1)]
+        else:
+            logits = [F.log_softmax(h1.mul(1./self.temp), dim=1), F.log_softmax(h2.mul(1./self.temp), dim=1)]
 
         return logits
 

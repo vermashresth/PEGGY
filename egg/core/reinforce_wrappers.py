@@ -193,7 +193,7 @@ class MyRnnSenderReinforce(nn.Module):
         self.num_layers = num_layers
         self.cells = None
         self.multi_head = multi_head
-
+        self.unc_threshold = 2
         cell = cell.lower()
         cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
 
@@ -209,6 +209,15 @@ class MyRnnSenderReinforce(nn.Module):
 
     def reset_parameters(self):
         nn.init.normal_(self.sos_embedding, 0.0, 0.01)
+
+    def advice_mode(self, flag):
+        self.advice_mode = flag
+        self.training = not flag
+        # self.agent.advice_mode = flag
+        if flag:
+            self.eval()
+        else:
+            self.train()
 
     def forward(self, x):
         sequence_list, logits_list, entropy_list = [], [], []
@@ -266,7 +275,11 @@ class MyRnnSenderReinforce(nn.Module):
         final_id = np.random.choice(range(len(agent_outs)))
         # print(sequence_list[0], sequence_list[1])
         if self.multi_head:
-            wandb.log({'message unc':cal_batch_ld(sequence_list[0], sequence_list[1])})
+            self.unc = cal_batch_ld(sequence_list[0], sequence_list[1])
+            wandb.log({'message unc':self.unc})
+
+            if self.unc < self.unc_threshold:
+                output = self.manager.get_advice(x, self.id)
         return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
 
 class RnnSenderReinforce(nn.Module):
@@ -716,6 +729,22 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         return optimized_loss, rest
 
+class AdviceManager():
+    def __init__(self, agent_list, unc_threshold=2):
+        self.agent_list = agent_list
+    def get_advice(self, state, my_id):
+        min_unc = 100
+        f_message, f_log_prob, f_entropy = None, None, None
+        for id, agent in enumerate(self.agent_list):
+            if id!=my_id:
+                agent.advice_mode(True)
+                unc, message, log_prob, entropy = agent(state)
+                agent.advice_mode(False)
+                if unc < unc_threshold and unc<min_unc:
+                    min_unc = unc
+                    f_message, f_log_prob, f_entropy = message, log_prob, entropy
+        return min_unc, f_message, f_log_prob, f_entropy
+
 class PopUncSenderReceiverRnnReinforce(nn.Module):
     """
     Implements Sender/Receiver game with training done via Reinforce. Both agents are supposed to
@@ -784,6 +813,10 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
         self.mean_baselines = [defaultdict(baseline_type) for _ in range(pop)]
         self.s_critics = [critic_type(embedding_size, hidden_size) for _ in range(pop)]
         self.r_critics = [critic_type(game_size, 2) for _ in range(pop)]
+
+        self.s_advice_manager = AdviceManager(sender_list)
+        for sender in sender_list:
+            sender.manager = self.s_advice_manager
 
     def forward(self, sender_input, labels, receiver_input=None):
         index = np.random.choice(range(self.pop))

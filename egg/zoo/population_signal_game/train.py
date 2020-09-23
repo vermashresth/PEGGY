@@ -100,12 +100,10 @@ def get_my_game(opt):
             sender = InformedSender(opt.game_size, feat_size,
                                 opt.embedding_size, opt.hidden_size, out_hidden_size,
                                 temp=opt.tau_s)
-            sender.id = i
         else:
             sender = InformedSenderMultiHead(opt.game_size, feat_size,
                                     opt.embedding_size, opt.hidden_size, out_hidden_size,
                                     temp=opt.tau_s)
-            sender.id = i
         receiver = MyReceiver(opt.game_size, feat_size,
                             opt.embedding_size, out_hidden_size, reinforce=(opts.mode == 'rf'))
 
@@ -118,7 +116,7 @@ def get_my_game(opt):
             sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
         else:
             raise RuntimeError(f"Unknown training mode: {opts.mode}")
-
+        sender.id = i
         sender_list.append(sender)
         receiver_list.append(receiver)
 

@@ -16,7 +16,7 @@ from .reinforce_wrappers import (ReinforceWrapper, SymbolGameReinforce,
                                  ReinforceDeterministicWrapper, RnnReceiverReinforce, MMRnnReceiverDeterministic,
                                  MyRnnSenderReinforce, RnnSenderReinforce, PopSenderReceiverRnnReinforce, PopUncSenderReceiverRnnReinforce, SenderReceiverRnnReinforce,
                                  RnnReceiverDeterministic, TransformerReceiverDeterministic,
-                                 TransformerSenderReinforce)
+                                 TransformerSenderReinforce, AdviceManager)
 from .util import find_lengths
 from .rnn import RnnEncoder
 

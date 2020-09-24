@@ -28,8 +28,8 @@ def cal_batch_ld(t1, t2):
 
     tot = np.vstack([ar1_s, ar2_s])
     batch_ld = np.apply_along_axis(lambda x: ld(x[0],x[1]), 0, tot)
-    mean_ld = np.mean(batch_ld)
-    return mean_ld
+    # mean_ld = np.mean(batch_ld)
+    return batch_ld
 
 class ReinforceWrapper(nn.Module):
     """
@@ -227,7 +227,8 @@ class MyRnnSenderReinforce(nn.Module):
         agent_outs = self.agent(x)
         if not self.multi_head:
             agent_outs = [agent_outs]
-        for output in agent_outs:
+        distributions = []
+        for head_id, output in enumerate(agent_outs):
             prev_hidden = [output]
             prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
 
@@ -238,7 +239,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = []
             logits = []
             entropy = []
-
+            step_distr = []
             for step in range(self.max_len):
                 for i, layer in enumerate(self.cells):
                     if isinstance(layer, nn.LSTMCell):
@@ -252,8 +253,9 @@ class MyRnnSenderReinforce(nn.Module):
                 step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
                 distr = Categorical(logits=step_logits)
                 entropy.append(distr.entropy())
+                step_distr.append(distr)
 
-                if self.training:
+                if self.training or self.give_advice:
                     x_out = distr.sample()
                 else:
                     x_out = step_logits.argmax(dim=1)
@@ -261,6 +263,8 @@ class MyRnnSenderReinforce(nn.Module):
 
                 input = self.embedding(x_out)
                 sequence.append(x_out)
+
+            distributions.append(step_distr)
 
             sequence = torch.stack(sequence).permute(1, 0)
             logits = torch.stack(logits).permute(1, 0)
@@ -278,16 +282,29 @@ class MyRnnSenderReinforce(nn.Module):
         final_id = np.random.choice(range(len(agent_outs)))
         # print(sequence_list[0], sequence_list[1])
         if self.multi_head:
-            self.unc = cal_batch_ld(sequence_list[0], sequence_list[1])
-            wandb.log({'message unc':self.unc})
-            if not self.give_advice:
-                if self.unc > self.unc_threshold:
-                    output = self.manager.get_advice(x, self.id)
-                 ## process with output
-                return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
+            self.unc_batch = cal_batch_ld(sequence_list[0], sequence_list[1])
+            self.unc = np.mean(self.unc_batch)
+            if self.training:
+                wandb.log({'message unc':self.unc})
             else:
-                ## Giving advice
-                return self.unc, sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
+                wandb.log({'message argmax unc':self.unc})
+            if self.multi_head >1:
+                if not self.give_advice:
+                     do_ask_advice = self.unc_batch > self.unc_threshold
+                    output = self.manager.get_advice(x, self.id)
+                    adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
+                    unc_of_adviced = torch.Tensor(output[0])
+                    step_distr = distributions[final_id]
+                    for step in range(self.max_len):
+                        step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
+                        for idx, flag in enumerate(do_ask_advice):
+                            if flag and unc_of_adviced[idx]!=100:
+                                logits_list[final_id][idx] = step_logits_for_adviced[idx]
+
+                    return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
+                else:
+                    ## Giving advice
+                    return self.unc_batch, sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
         return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
 
 class RnnSenderReinforce(nn.Module):
@@ -745,17 +762,25 @@ class AdviceManager():
         self.agent_list = agent_list
         self.unc_threshold = unc_threshold
     def get_advice(self, state, my_id):
-        min_unc = 100
-        f_message, f_log_prob, f_entropy = None, None, None
+        batch_size = state.size(1)
+        min_unc = [100 for _ in range(batch_size)]
+        f_message = [ [0 for __ in range(5)] for _ in range(batch_size)]
+        uncs, messages = [], []
         for id, agent in enumerate(self.agent_list):
             if id!=my_id:
                 agent.advice_mode(True)
-                unc, message, log_prob, entropy = agent(state)
+                unc, message, _, _ = agent(state)
                 agent.advice_mode(False)
-                if unc < self.unc_threshold and unc<min_unc:
-                    min_unc = unc
-                    f_message, f_log_prob, f_entropy = message, log_prob, entropy
-        return min_unc, f_message, f_log_prob, f_entropy
+
+                uncs.append(unc)
+                messages.append(message.detach().cpu().numpy())
+
+        for id in range(len(uncs)):
+            for bt in range(batch_size):
+                if uncs[id][bt] < self.unc_threshold and uncs[id][bt] < min_unc[bt]:
+                    min_unc[bt] = uncs[id][bt]
+                    f_message[bt] = messages[id][bt]
+        return min_unc, f_message, _, _
 
 class PopUncSenderReceiverRnnReinforce(nn.Module):
     """

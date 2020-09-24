@@ -57,7 +57,7 @@ class InformedSenderMultiHead(nn.Module):
         if self.advice_mode:
             logits = [F.log_softmax(h, dim=1)]
         else:
-            logits = [F.log_softmax(h1.mul(1./self.temp), dim=1), F.log_softmax(h2.mul(1./self.temp), dim=1)]
+            logits = [h1.mul(1./self.temp, h2.mul(1./self.temp))]
 
         return logits
 

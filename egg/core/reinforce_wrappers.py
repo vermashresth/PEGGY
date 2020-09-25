@@ -705,7 +705,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         self.baselines = defaultdict(baseline_type)
         self.s_advice_manager = AdviceManager(sender_list)
 
-        self.learn_advice_iters = 5
+        self.learn_advice_iters = 10
         for sender in self.sender_list:
             sender.set_manager(self.s_advice_manager)
 
@@ -720,13 +720,15 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-        s_loss = loss.clone()
-        tot_loss = loss.clone()
+        s_loss = loss.detach().clone()
+        tot_loss = loss.detach().clone()
         for i in range(self.learn_advice_iters):
             n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
             do_ask_advice = torch.Tensor(self.sender.advice_info[1])==True
-            f_message, f_log_prob_s, f_entropy_s = n_message[do_ask_advice], n_log_prob_s[do_ask_advice], n_entropy_s[do_ask_advice]
-            f_loss = s_loss[do_ask_advice]
+            successful_episodes = s_loss==1
+            mask = do_ask_advice*successful_episodes
+            f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
+            f_loss = s_loss[mask]
             message = torch.cat([message, f_message])
             log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
             entropy_s = torch.cat([entropy_s, f_entropy_s])

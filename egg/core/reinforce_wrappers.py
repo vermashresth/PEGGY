@@ -194,6 +194,7 @@ class MyRnnSenderReinforce(nn.Module):
         self.cells = None
         self.multi_head = multi_head
         self.unc_threshold = 2
+        self.advice_info = None
         cell = cell.lower()
         cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
 
@@ -290,8 +291,12 @@ class MyRnnSenderReinforce(nn.Module):
                 wandb.log({'message argmax unc':self.unc})
             if self.multi_head >1:
                 if not self.give_advice:
-                     do_ask_advice = self.unc_batch > self.unc_threshold
-                    output = self.manager.get_advice(x, self.id)
+                    if self.advice_info is None:
+                        output = self.manager.get_advice(x, self.id)
+                        do_ask_advice = self.unc_batch > self.unc_threshold
+                        self.advice_info = [output, do_ask_advice]
+                    else:
+                        output, do_ask_advice = self.advice_info
                     adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
                     unc_of_adviced = torch.Tensor(output[0])
                     step_distr = distributions[final_id]
@@ -300,7 +305,7 @@ class MyRnnSenderReinforce(nn.Module):
                         for idx, flag in enumerate(do_ask_advice):
                             if flag and unc_of_adviced[idx]!=100:
                                 logits_list[final_id][idx] = step_logits_for_adviced[idx]
-
+                                sequence_list[final_id][idx] = adviced_seq[:, step][idx]
                     return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
                 else:
                     ## Giving advice
@@ -585,7 +590,6 @@ class SenderReceiverRnnReinforce(nn.Module):
         self.receiver_entropy_coeff = receiver_entropy_coeff
         self.loss = loss
         self.length_cost = length_cost
-
         self.baselines = defaultdict(baseline_type)
 
     def forward(self, sender_input, labels, receiver_input=None):
@@ -700,6 +704,8 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         self.baselines = defaultdict(baseline_type)
         self.s_advice_manager = AdviceManager(sender_list)
+
+        self.learn_advice_iters = 5
         for sender in self.sender_list:
             sender.set_manager(self.s_advice_manager)
 
@@ -714,13 +720,26 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
+        s_loss = loss.clone()
+        tot_loss = loss.clone()
+        for i in range(self.learn_advice_iters):
+            n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
+            do_ask_advice = torch.Tensor(self.sender.advice_info[1])==True
+            f_message, f_log_prob_s, f_entropy_s = n_message[do_ask_advice], n_log_prob_s[do_ask_advice], n_entropy_s[do_ask_advice]
+            f_loss = s_loss[do_ask_advice]
+            message = torch.cat([message, f_message])
+            log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
+            entropy_s = torch.cat([entropy_s, f_entropy_s])
+            tot_loss = torch.cat([tot_loss, f_loss])
 
+        self.sender.advice_info = None
+        message_lengths = find_lengths(message)
         # the entropy of the outputs of S before and including the eos symbol - as we don't care about what's after
-        effective_entropy_s = torch.zeros_like(entropy_r)
+        effective_entropy_s = torch.zeros_like(entropy_s[:, 0])
 
         # the log prob of the choices made by S before and including the eos symbol - again, we don't
         # care about the rest
-        effective_log_prob_s = torch.zeros_like(log_prob_r)
+        effective_log_prob_s = torch.zeros_like(log_prob_s[:, 0])
 
         for i in range(message.size(1)):
             not_eosed = (i < message_lengths).float()
@@ -731,19 +750,21 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         weighted_entropy = effective_entropy_s.mean() * self.sender_entropy_coeff + \
                 entropy_r.mean() * self.receiver_entropy_coeff
 
-        log_prob = effective_log_prob_s + log_prob_r
+        # log_prob = effective_log_prob_s + log_prob_r
 
         length_loss = message_lengths.float() * self.length_cost
 
         policy_length_loss = ((length_loss - self.baselines['length'].predict(length_loss)) * effective_log_prob_s).mean()
-        policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
-
+        policy_loss_s = ((tot_loss.detach() - self.baselines['s_loss'].predict(tot_loss.detach())) * effective_log_prob_s).mean()
+        policy_loss_r = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
+        policy_loss = policy_loss_r+policy_loss_s
         optimized_loss = policy_length_loss + policy_loss - weighted_entropy
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
         wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()})
 
         if self.training:
+            self.baselines['s_loss'].update(tot_loss)
             self.baselines['loss'].update(loss)
             self.baselines['length'].update(length_loss)
 

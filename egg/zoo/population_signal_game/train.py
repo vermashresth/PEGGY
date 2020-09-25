@@ -112,11 +112,13 @@ def get_my_game(opt):
                                        cell="gru", max_len=opt.max_len)
             receiver = core.RnnReceiverReinforce(receiver, opt.vocab_size, emb_size,
                        out_hidden_size, cell="gru")
+            receiver.multi_head = opts.multi_head==2
         elif opts.mode == 'gs':
             sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
         else:
             raise RuntimeError(f"Unknown training mode: {opts.mode}")
         sender.id = i
+        receiver.id = i
         sender_list.append(sender)
         receiver_list.append(receiver)
 

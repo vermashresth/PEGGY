@@ -435,11 +435,47 @@ class RnnReceiverReinforce(nn.Module):
         super(RnnReceiverReinforce, self).__init__()
         self.agent = agent
         self.encoder = RnnEncoder(vocab_size, embed_dim, hidden_size, cell, num_layers)
+        self.unc_threshold = 0.6
+        self.multi_head = True
+        self.advice_mode(False)
+        self.advice_info = None
+
+    def set_manager(self, manager):
+        self.manager = manager
+
+    def advice_mode(self, flag):
+        self.give_advice = flag
+        self.training = not flag
+        # self.agent.advice_mode = flag
+        if flag:
+            self.eval()
+        else:
+            self.train()
 
     def forward(self, message, input=None, lengths=None):
         encoded = self.encoder(message)
-        sample, logits, entropy = self.agent(encoded, input)
+        sample, logits, entropy, distr = self.agent(encoded, input)
 
+        if self.multi_head:
+            self.unc = unc/(np.log(3)/np.log(2))
+            if not self.give_advice:
+                if self.advice_info is None:
+                    output = self.manager.get_advice(message, input self.id)
+                    do_ask_advice = self.unc_batch > self.unc_threshold
+                    self.advice_info = [output, do_ask_advice]
+                else:
+                    output, do_ask_advice = self.advice_info
+                adviced_action = torch.tensor(output[1]).cuda() # batch of seq len , 32x5
+                unc_of_adviced = torch.Tensor(output[0]).cuda()
+                for idx, flag in enumerate(do_ask_advice):
+                    if flag and unc_of_adviced[idx]!=100:
+                        ac = adviced_action[idx]
+                        bs = adviced_action.size(0)
+                        bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor)
+                        logits[idx] = distr.log_prob(bs_act)[idx]
+                        sample[idx] = adviced_action[idx]
+            else:
+                return self.unc, sample, logits, entropy
         return sample, logits, entropy
 
 
@@ -704,13 +740,15 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         self.baselines = defaultdict(baseline_type)
         self.s_advice_manager = AdviceManager(sender_list)
-
+        self.r_advice_manager = RecAdviceManager(receiver_list)
         self.learn_advice_iters = 10
         for sender in self.sender_list:
             sender.set_manager(self.s_advice_manager)
+        for receiver in self.receiver_list:
+            receiver.set_manager(self.r_advice_manager)
 
     def forward(self, sender_input, labels, receiver_input=None):
-        normal = False
+        normal = self.multi_head!=2
         index = np.random.choice(range(self.pop))
 
         self.sender = self.sender_list[index]
@@ -719,22 +757,45 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         message, log_prob_s, entropy_s = self.sender(sender_input)
         message_lengths = find_lengths(message)
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
+        self.receiver.advice_info = None
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
         if not normal:
           s_loss = loss.detach().clone()
           tot_loss = loss.detach().clone()
-          do_ask_advice = torch.Tensor(self.sender.advice_info[1])==True
           successful_episodes = s_loss==-1
-          mask = do_ask_advice.cuda()*successful_episodes
+          do_ask_advice = (torch.Tensor(self.sender.advice_info[1])==True).cuda()
+          mask = do_ask_advice*successful_episodes
+          # print(s_loss)
+          # advc_suc = mask.sum()/do_ask_advice.sum()
+          print("sender advices which are successful",mask.sum(), do_ask_advice.sum())
           for i in range(self.learn_advice_iters):
               n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
+
               f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
               f_loss = s_loss[mask]
               message = torch.cat([message, f_message])
               log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
               entropy_s = torch.cat([entropy_s, f_entropy_s])
               tot_loss = torch.cat([tot_loss, f_loss])
+
+        if not normal:
+          r_loss = loss.detach().clone()
+          tot_r_loss = loss.detach().clone()
+          successful_episodes = r_loss==-1
+          do_ask_advice = (torch.Tensor(self.receiver.advice_info[1])==True).cuda()
+          mask = do_ask_advice*successful_episodes
+          # print(s_loss)
+          # advc_suc = mask.sum()/do_ask_advice.sum()
+          print("rec advices which are successful",mask.sum(), do_ask_advice.sum())
+          for i in range(self.learn_advice_iters):
+              _ , n_log_prob_r, n_entropy_r, _ = self.sender(sender_input)
+
+              f_log_prob_r, f_entropy_r = n_log_prob_s[mask], n_entropy_s[mask]
+              f_loss = r_loss[mask]
+              log_prob_r = torch.cat([log_prob_r, f_log_prob_r])
+              entropy_r = torch.cat([entropy_r, f_entropy_r])
+              tot_r_loss = torch.cat([tot_r_loss, f_loss])
 
         self.sender.advice_info = None
         message_lengths = find_lengths(message)
@@ -762,7 +823,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         if not normal:
           policy_loss_s = ((tot_loss.detach() - self.baselines['s_loss'].predict(tot_loss.detach())) * effective_log_prob_s).mean()
-          policy_loss_r = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
+          policy_loss_r = ((tot_r_loss.detach() - self.baselines['r_loss'].predict(tot_r_loss.detach())) * log_prob_r).mean()
           policy_loss = policy_loss_r+policy_loss_s
         else:
           policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
@@ -775,7 +836,9 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         if self.training:
             if not normal:
               self.baselines['s_loss'].update(tot_loss)
-            self.baselines['loss'].update(loss)
+              self.baselines['r_loss'].update(tot_r_loss)
+            else:
+              self.baselines['loss'].update(loss)
             self.baselines['length'].update(length_loss)
 
         for k, v in rest.items():
@@ -787,6 +850,32 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         rest['mean_length'] = message_lengths.float().mean().item()
 
         return optimized_loss, rest
+
+class RecAdviceManager():
+    def __init__(self, agent_list, unc_threshold=0.2):
+        self.agent_list = agent_list
+        self.unc_threshold = unc_threshold
+
+    def get_advice(self, message, input, my_id):
+        batch_size = message.size(0)
+        min_unc = [100 for _ in range(batch_size)]
+        f_samples = [ None for _ in range(batch_size)]
+        uncs, samples = [], []
+        for id, agent in enumerate(self.agent_list):
+            if id!=my_id:
+                agent.advice_mode(True)
+                unc, sample, _, _ = agent(message, input)
+                agent.advice_mode(False)
+
+                uncs.append(unc)
+                samples.append(sample.detach().cpu().numpy())
+
+        for id in range(len(uncs)):
+            for bt in range(batch_size):
+                if uncs[id][bt] <= self.unc_threshold and uncs[id][bt] < min_unc[bt]:
+                    min_unc[bt] = uncs[id][bt]
+                    f_sample[bt] = samples[id][bt]
+        return min_unc, f_sample, _, _
 
 class AdviceManager():
     def __init__(self, agent_list, unc_threshold=2):

@@ -18,7 +18,7 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
-import wandb
+# import wandb
 
 def cal_batch_ld(t1, t2):
     ar1 = t1.detach().cpu().numpy()
@@ -286,9 +286,9 @@ class MyRnnSenderReinforce(nn.Module):
             self.unc_batch = cal_batch_ld(sequence_list[0], sequence_list[1])
             self.unc = np.mean(self.unc_batch)
             # if self.training:
-            #     wandb.log({'message unc':self.unc})
+            #     wandb.log({'message unc':self.unc}, step=run.history.row['Epoch'])
             # else:
-            #     wandb.log({'message argmax unc':self.unc})
+            #     wandb.log({'message argmax unc':self.unc}, step=run.history.row['Epoch'])
             if self.multi_head >1:
                 if not self.give_advice:
                     if self.advice_info is None:
@@ -808,7 +808,7 @@ class AdviceManager():
 
         for id in range(len(uncs)):
             for bt in range(batch_size):
-                if uncs[id][bt] < self.unc_threshold and uncs[id][bt] < min_unc[bt]:
+                if uncs[id][bt] <= self.unc_threshold and uncs[id][bt] < min_unc[bt]:
                     min_unc[bt] = uncs[id][bt]
                     f_message[bt] = messages[id][bt]
         return min_unc, f_message, _, _

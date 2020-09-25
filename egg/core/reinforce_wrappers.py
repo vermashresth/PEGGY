@@ -285,10 +285,10 @@ class MyRnnSenderReinforce(nn.Module):
         if self.multi_head:
             self.unc_batch = cal_batch_ld(sequence_list[0], sequence_list[1])
             self.unc = np.mean(self.unc_batch)
-            if self.training:
-                wandb.log({'message unc':self.unc})
-            else:
-                wandb.log({'message argmax unc':self.unc})
+            # if self.training:
+            #     wandb.log({'message unc':self.unc})
+            # else:
+            #     wandb.log({'message argmax unc':self.unc})
             if self.multi_head >1:
                 if not self.give_advice:
                     if self.advice_info is None:
@@ -710,6 +710,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
             sender.set_manager(self.s_advice_manager)
 
     def forward(self, sender_input, labels, receiver_input=None):
+        normal = False
         index = np.random.choice(range(self.pop))
 
         self.sender = self.sender_list[index]
@@ -720,19 +721,20 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-        s_loss = loss.detach().clone()
-        tot_loss = loss.detach().clone()
-        for i in range(self.learn_advice_iters):
-            n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
-            do_ask_advice = torch.Tensor(self.sender.advice_info[1])==True
-            successful_episodes = s_loss==1
-            mask = do_ask_advice*successful_episodes
-            f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
-            f_loss = s_loss[mask]
-            message = torch.cat([message, f_message])
-            log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
-            entropy_s = torch.cat([entropy_s, f_entropy_s])
-            tot_loss = torch.cat([tot_loss, f_loss])
+        if not normal:
+          s_loss = loss.detach().clone()
+          tot_loss = loss.detach().clone()
+          do_ask_advice = torch.Tensor(self.sender.advice_info[1])==True
+          successful_episodes = s_loss==-1
+          mask = do_ask_advice.cuda()*successful_episodes
+          for i in range(self.learn_advice_iters):
+              n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
+              f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
+              f_loss = s_loss[mask]
+              message = torch.cat([message, f_message])
+              log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
+              entropy_s = torch.cat([entropy_s, f_entropy_s])
+              tot_loss = torch.cat([tot_loss, f_loss])
 
         self.sender.advice_info = None
         message_lengths = find_lengths(message)
@@ -751,22 +753,28 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         weighted_entropy = effective_entropy_s.mean() * self.sender_entropy_coeff + \
                 entropy_r.mean() * self.receiver_entropy_coeff
-
-        # log_prob = effective_log_prob_s + log_prob_r
+        if normal:
+          log_prob = effective_log_prob_s + log_prob_r
 
         length_loss = message_lengths.float() * self.length_cost
 
         policy_length_loss = ((length_loss - self.baselines['length'].predict(length_loss)) * effective_log_prob_s).mean()
-        policy_loss_s = ((tot_loss.detach() - self.baselines['s_loss'].predict(tot_loss.detach())) * effective_log_prob_s).mean()
-        policy_loss_r = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
-        policy_loss = policy_loss_r+policy_loss_s
+
+        if not normal:
+          policy_loss_s = ((tot_loss.detach() - self.baselines['s_loss'].predict(tot_loss.detach())) * effective_log_prob_s).mean()
+          policy_loss_r = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob_r).mean()
+          policy_loss = policy_loss_r+policy_loss_s
+        else:
+          policy_loss = ((loss.detach() - self.baselines['loss'].predict(loss.detach())) * log_prob).mean()
+
         optimized_loss = policy_length_loss + policy_loss - weighted_entropy
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
-        wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()})
+        # wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()}, commit=False)
 
         if self.training:
-            self.baselines['s_loss'].update(tot_loss)
+            if not normal:
+              self.baselines['s_loss'].update(tot_loss)
             self.baselines['loss'].update(loss)
             self.baselines['length'].update(length_loss)
 
@@ -932,12 +940,12 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
 
         critic_losses = critic_loss_s + critic_loss_r
         optimized_loss += critic_losses
-        if not self.use_critic_baseline:
-            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
-            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
-        else:
-            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
-            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
+        # if not self.use_critic_baseline:
+        #     wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
+        #     wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
+        # else:
+        #     wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
+        #     wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
 
         # optimized_loss += critic_loss_s
 

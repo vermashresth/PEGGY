@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-import wandb
+# import wandb
 
 class InformedSenderMultiHead(nn.Module):
     def __init__(self, game_size, feat_size, embedding_size, hidden_size,
@@ -51,13 +51,13 @@ class InformedSenderMultiHead(nn.Module):
         h2 = self.lin5(h)
         h = (h1+h2)/2
         self.unc = nn.CosineSimilarity(dim=1)(h1.detach(), h2.detach()).mean()
-        wandb.log({'cosine unc':self.unc})
+        # wandb.log({'cosine unc':self.unc})
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)
         if self.advice_mode:
             logits = [F.log_softmax(h, dim=1)]
         else:
-            logits = [h1.mul(1./self.temp, h2.mul(1./self.temp))]
+            logits = [h1.mul(1./self.temp), h2.mul(1./self.temp)]
 
         return logits
 

@@ -270,7 +270,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = torch.stack(sequence).permute(1, 0)
             logits = torch.stack(logits).permute(1, 0)
             entropy = torch.stack(entropy).permute(1, 0)
-            wandb.log({"Sender Entropy":entropy.mean()/np.log(5)})
+            wandb.log({"Sender Entropy":entropy.mean()/np.log(5)}, commit=False)
             if self.force_eos:
                 zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
 
@@ -457,6 +457,7 @@ class RnnReceiverReinforce(nn.Module):
     def forward(self, message, input=None, lengths=None):
         encoded = self.encoder(message)
         sample, logits, entropy, log_probs = self.agent(encoded, input)
+        wandb.log({'Rec Entropy': entropy.mean()/np.log(3)}, commit=False)
         sample = sample.detach().clone()
         if self.multi_head:
             self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3))

@@ -18,7 +18,7 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
-# import wandb
+import wandb
 
 def cal_batch_ld(t1, t2):
     ar1 = t1.detach().cpu().numpy()
@@ -270,7 +270,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = torch.stack(sequence).permute(1, 0)
             logits = torch.stack(logits).permute(1, 0)
             entropy = torch.stack(entropy).permute(1, 0)
-
+            wandb.log({"Sender Entropy":entropy.mean()/np.log(5)})
             if self.force_eos:
                 zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
 
@@ -291,6 +291,7 @@ class MyRnnSenderReinforce(nn.Module):
             #     wandb.log({'message argmax unc':self.unc}, step=run.history.row['Epoch'])
             if self.multi_head >1:
                 if not self.give_advice:
+                    wandb.log({'Sender Unc': np.mean(self.unc_batch)}, commit=False)
                     if self.advice_info is None:
                         output = self.manager.get_advice(x, self.id)
                         do_ask_advice = self.unc_batch > self.unc_threshold
@@ -458,8 +459,9 @@ class RnnReceiverReinforce(nn.Module):
         sample, logits, entropy, log_probs = self.agent(encoded, input)
         sample = sample.detach().clone()
         if self.multi_head:
-            self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3)/np.log(2))
+            self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3))
             if not self.give_advice:
+                wandb.log({'Rec Unc': np.mean(self.unc_batch)}, commit=False)
                 if self.advice_info is None:
                     output = self.manager.get_advice(message, input, self.id)
                     do_ask_advice = self.unc_batch > self.unc_threshold
@@ -776,9 +778,9 @@ class PopSenderReceiverRnnReinforce(nn.Module):
           mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"send learnt & succ":mask.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum()}, commit = False)
+          wandb.log({"send learnt & succ":mask.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum().item()}, commit = False)
 
-          print("send learnt & succ: ",mask.sum().item(), "send asked: ", do_ask_advice.sum().item(), "send recieved: ", do_give_advice.sum())
+          print("send learnt & succ:",mask.sum().item(), ", send asked:", do_ask_advice.sum().item(), ", send recieved:", do_give_advice.sum().item())
           for i in range(self.learn_advice_iters):
               n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
               f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
@@ -798,9 +800,9 @@ class PopSenderReceiverRnnReinforce(nn.Module):
           mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"rec learnt & succ":mask.sum().item(), "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum()}, commit=False)
+          wandb.log({"rec learnt & succ":mask.sum().item(), "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum().item()}, commit=False)
 
-          print("rec learnt & succ: ",mask.sum().item(), "rec asked: ", do_ask_advice.sum().item(), "rec recieved: ", do_give_advice.sum(), '\n')
+          print("rec learnt & succ:",mask.sum().item(), ", rec asked: ", do_ask_advice.sum().item(), ", rec recieved:", do_give_advice.sum().item(), '\n')
           for i in range(self.learn_advice_iters):
               _ , n_log_prob_r, n_entropy_r = self.receiver(original_message, receiver_input, message_lengths)
 

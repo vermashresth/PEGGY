@@ -299,11 +299,12 @@ class MyRnnSenderReinforce(nn.Module):
                         output, do_ask_advice = self.advice_info
                     adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
                     unc_of_adviced = torch.Tensor(output[0])
+                    do_give_advice = output[2]
                     step_distr = distributions[final_id]
                     for step in range(self.max_len):
                         step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
                         for idx, flag in enumerate(do_ask_advice):
-                            if flag and unc_of_adviced[idx]!=100:
+                            if flag and do_give_advice[idx]:
                                 logits_list[final_id][idx] = step_logits_for_adviced[idx]
                                 sequence_list[final_id][idx] = adviced_seq[:, step][idx]
                     return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
@@ -454,28 +455,30 @@ class RnnReceiverReinforce(nn.Module):
 
     def forward(self, message, input=None, lengths=None):
         encoded = self.encoder(message)
-        sample, logits, entropy, distr = self.agent(encoded, input)
-
+        sample, logits, entropy, log_probs = self.agent(encoded, input)
+        sample = sample.detach().clone()
         if self.multi_head:
-            self.unc = unc/(np.log(3)/np.log(2))
+            self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3)/np.log(2))
             if not self.give_advice:
                 if self.advice_info is None:
-                    output = self.manager.get_advice(message, input self.id)
+                    output = self.manager.get_advice(message, input, self.id)
                     do_ask_advice = self.unc_batch > self.unc_threshold
                     self.advice_info = [output, do_ask_advice]
                 else:
                     output, do_ask_advice = self.advice_info
-                adviced_action = torch.tensor(output[1]).cuda() # batch of seq len , 32x5
-                unc_of_adviced = torch.Tensor(output[0]).cuda()
+                adviced_action = output[1] # batch of seq len , 32x5
+                unc_of_adviced = output[0]
+                do_give_advice = output[2]
                 for idx, flag in enumerate(do_ask_advice):
-                    if flag and unc_of_adviced[idx]!=100:
-                        ac = adviced_action[idx]
-                        bs = adviced_action.size(0)
-                        bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor)
-                        logits[idx] = distr.log_prob(bs_act)[idx]
+                    if flag and do_give_advice[idx]:
+                        # ac = adviced_action[idx].cpu().numpy()
+                        # bs = adviced_action.size(0)
+                        # bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor).cuda()
+                        logits[idx] = log_probs[idx][adviced_action[idx]]
                         sample[idx] = adviced_action[idx]
+                return sample, logits, entropy
             else:
-                return self.unc, sample, logits, entropy
+                return self.unc_batch, sample, logits, entropy
         return sample, logits, entropy
 
 
@@ -748,30 +751,34 @@ class PopSenderReceiverRnnReinforce(nn.Module):
             receiver.set_manager(self.r_advice_manager)
 
     def forward(self, sender_input, labels, receiver_input=None):
-        normal = self.multi_head!=2
+
         index = np.random.choice(range(self.pop))
 
         self.sender = self.sender_list[index]
         self.receiver = self.receiver_list[index]
 
+        normal = self.sender.multi_head!=2
+
         message, log_prob_s, entropy_s = self.sender(sender_input)
+        original_message = message.clone()
         message_lengths = find_lengths(message)
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
-        self.receiver.advice_info = None
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
+
         if not normal:
           s_loss = loss.detach().clone()
           tot_loss = loss.detach().clone()
           successful_episodes = s_loss==-1
           do_ask_advice = (torch.Tensor(self.sender.advice_info[1])==True).cuda()
-          mask = do_ask_advice*successful_episodes
+          do_give_advice = (torch.Tensor(self.sender.advice_info[0][2])==True).cuda()
+          learnt_advices = do_ask_advice*do_give_advice
+          mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          print("sender advices which are successful",mask.sum(), do_ask_advice.sum())
+          print("send learnt & succ: ",mask.sum().item(), "send asked: ", do_ask_advice.sum().item(), "send recieved: ", do_give_advice.sum())
           for i in range(self.learn_advice_iters):
               n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
-
               f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
               f_loss = s_loss[mask]
               message = torch.cat([message, f_message])
@@ -784,20 +791,23 @@ class PopSenderReceiverRnnReinforce(nn.Module):
           tot_r_loss = loss.detach().clone()
           successful_episodes = r_loss==-1
           do_ask_advice = (torch.Tensor(self.receiver.advice_info[1])==True).cuda()
-          mask = do_ask_advice*successful_episodes
+          do_give_advice = (torch.Tensor(self.receiver.advice_info[0][2])==True).cuda()
+          learnt_advices = do_ask_advice*do_give_advice
+          mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          print("rec advices which are successful",mask.sum(), do_ask_advice.sum())
+          print("rec learnt & succ: ",mask.sum().item(), "rec asked: ", do_ask_advice.sum().item(), "rec recieved: ", do_give_advice.sum(), '\n')
           for i in range(self.learn_advice_iters):
-              _ , n_log_prob_r, n_entropy_r, _ = self.sender(sender_input)
+              _ , n_log_prob_r, n_entropy_r = self.receiver(original_message, receiver_input, message_lengths)
 
-              f_log_prob_r, f_entropy_r = n_log_prob_s[mask], n_entropy_s[mask]
+              f_log_prob_r, f_entropy_r = n_log_prob_r[mask], n_entropy_r[mask]
               f_loss = r_loss[mask]
               log_prob_r = torch.cat([log_prob_r, f_log_prob_r])
               entropy_r = torch.cat([entropy_r, f_entropy_r])
               tot_r_loss = torch.cat([tot_r_loss, f_loss])
 
         self.sender.advice_info = None
+        self.receiver.advice_info = None
         message_lengths = find_lengths(message)
         # the entropy of the outputs of S before and including the eos symbol - as we don't care about what's after
         effective_entropy_s = torch.zeros_like(entropy_s[:, 0])
@@ -852,14 +862,16 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         return optimized_loss, rest
 
 class RecAdviceManager():
-    def __init__(self, agent_list, unc_threshold=0.2):
+    def __init__(self, agent_list, unc_threshold=0.7):
         self.agent_list = agent_list
         self.unc_threshold = unc_threshold
 
     def get_advice(self, message, input, my_id):
         batch_size = message.size(0)
         min_unc = [100 for _ in range(batch_size)]
-        f_samples = [ None for _ in range(batch_size)]
+        f_samples = [ -1 for _ in range(batch_size)]
+        do_give_advice = [False for _ in range(batch_size)]
+
         uncs, samples = [], []
         for id, agent in enumerate(self.agent_list):
             if id!=my_id:
@@ -868,14 +880,15 @@ class RecAdviceManager():
                 agent.advice_mode(False)
 
                 uncs.append(unc)
-                samples.append(sample.detach().cpu().numpy())
+                samples.append(sample)
 
         for id in range(len(uncs)):
             for bt in range(batch_size):
                 if uncs[id][bt] <= self.unc_threshold and uncs[id][bt] < min_unc[bt]:
                     min_unc[bt] = uncs[id][bt]
-                    f_sample[bt] = samples[id][bt]
-        return min_unc, f_sample, _, _
+                    f_samples[bt] = samples[id][bt]
+                    do_give_advice[bt] = True
+        return min_unc, f_samples, do_give_advice, _
 
 class AdviceManager():
     def __init__(self, agent_list, unc_threshold=2):
@@ -885,6 +898,8 @@ class AdviceManager():
         batch_size = state.size(1)
         min_unc = [100 for _ in range(batch_size)]
         f_message = [ [0 for __ in range(5)] for _ in range(batch_size)]
+        do_give_advice = [False for _ in range(batch_size)]
+
         uncs, messages = [], []
         for id, agent in enumerate(self.agent_list):
             if id!=my_id:
@@ -900,7 +915,8 @@ class AdviceManager():
                 if uncs[id][bt] <= self.unc_threshold and uncs[id][bt] < min_unc[bt]:
                     min_unc[bt] = uncs[id][bt]
                     f_message[bt] = messages[id][bt]
-        return min_unc, f_message, _, _
+                    do_give_advice[bt] = True
+        return min_unc, f_message, do_give_advice, _
 
 class PopUncSenderReceiverRnnReinforce(nn.Module):
     """

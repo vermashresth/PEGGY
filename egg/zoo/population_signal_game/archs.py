@@ -178,7 +178,7 @@ class MyReceiver(nn.Module):
         entropy = distr.entropy()
         sample =  distr.sample()
         logit = distr.log_prob(sample)
-        return sample, logit, entropy, distr
+        return sample, logit, entropy, log_probs
 
     def return_final_encodings(self):
         return self.final_encoded_state

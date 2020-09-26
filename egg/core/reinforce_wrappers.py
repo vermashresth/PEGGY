@@ -776,6 +776,8 @@ class PopSenderReceiverRnnReinforce(nn.Module):
           mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
+          wandb.log({"send learnt & succ":mask.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum()}, commit = False)
+
           print("send learnt & succ: ",mask.sum().item(), "send asked: ", do_ask_advice.sum().item(), "send recieved: ", do_give_advice.sum())
           for i in range(self.learn_advice_iters):
               n_message, n_log_prob_s, n_entropy_s = self.sender(sender_input)
@@ -796,6 +798,8 @@ class PopSenderReceiverRnnReinforce(nn.Module):
           mask = learnt_advices*successful_episodes
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
+          wandb.log({"rec learnt & succ":mask.sum().item(), "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum()}, commit=False)
+
           print("rec learnt & succ: ",mask.sum().item(), "rec asked: ", do_ask_advice.sum().item(), "rec recieved: ", do_give_advice.sum(), '\n')
           for i in range(self.learn_advice_iters):
               _ , n_log_prob_r, n_entropy_r = self.receiver(original_message, receiver_input, message_lengths)

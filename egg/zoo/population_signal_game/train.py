@@ -55,7 +55,7 @@ def loss(_sender_input, _message, _receiver_input, receiver_output, labels):
     Accuracy loss - non-differetiable hence cannot be used with GS
     """
     acc = (labels == receiver_output).float()
-    wandb.log({'acc':acc.mean()})
+    # wandb.log({'acc':acc.mean()})
     return -acc, {'acc': acc.mean().item()}
 
 

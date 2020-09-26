@@ -253,6 +253,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = torch.stack(sequence).permute(1, 0)
             logits = torch.stack(logits).permute(1, 0)
             entropy = torch.stack(entropy).permute(1, 0)
+            wandb.log({"Sender Entropy":entropy.mean()}, commit=False)
 
             if self.force_eos:
                 zeros = torch.zeros((sequence.size(0), 1)).to(sequence.device)
@@ -265,8 +266,8 @@ class MyRnnSenderReinforce(nn.Module):
             entropy_list.append(entropy)
         final_id = np.random.choice(range(len(agent_outs)))
         # print(sequence_list[0], sequence_list[1])
-        if self.multi_head:
-            wandb.log({'message unc':cal_batch_ld(sequence_list[0], sequence_list[1])})
+        # if self.multi_head:
+        #     wandb.log({'message unc':cal_batch_ld(sequence_list[0], sequence_list[1])})
         return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
 
 class RnnSenderReinforce(nn.Module):
@@ -396,6 +397,7 @@ class RnnReceiverReinforce(nn.Module):
     def forward(self, message, input=None, lengths=None):
         encoded = self.encoder(message)
         sample, logits, entropy = self.agent(encoded, input)
+        wandb.log({'Rec Entropy': entropy.mean()}, commit=False)
 
         return sample, logits, entropy
 
@@ -700,7 +702,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         optimized_loss = policy_length_loss + policy_loss - weighted_entropy
         # if the receiver is deterministic/differentiable, we apply the actual loss
         optimized_loss += loss.mean()
-        wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()})
+        # wandb.log({'Critic losses':0.0, 'policy_loss':policy_loss.mean()})
 
         if self.training:
             self.baselines['loss'].update(loss)
@@ -839,12 +841,12 @@ class PopUncSenderReceiverRnnReinforce(nn.Module):
 
         critic_losses = critic_loss_s + critic_loss_r
         optimized_loss += critic_losses
-        if not self.use_critic_baseline:
-            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
-            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
-        else:
-            wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
-            wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
+        # if not self.use_critic_baseline:
+        #     wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':policy_loss.mean()})
+        #     wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
+        # else:
+        #     wandb.log({'Critic losses':critic_losses.mean(), 'policy_loss':(policy_loss_s + policy_loss_r).mean()})
+        #     wandb.log({'Critic predict s': sc.mean(), 'ac_loss':loss.mean(), 'critic loss s':critic_loss_s })
 
         # optimized_loss += critic_loss_s
 

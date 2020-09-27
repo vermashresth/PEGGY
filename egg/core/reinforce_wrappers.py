@@ -195,6 +195,8 @@ class MyRnnSenderReinforce(nn.Module):
         self.multi_head = multi_head
         self.unc_threshold = 2
         self.advice_info = None
+        self.clear_advices()
+
         cell = cell.lower()
         cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
 
@@ -222,6 +224,23 @@ class MyRnnSenderReinforce(nn.Module):
             self.eval()
         else:
             self.train()
+    def clear_advices(self):
+        self.adviced_logits = None
+        self.adviced_entropies = None
+        self.adviced_outputs = None
+        self.adviced_loss = None
+
+    def note_advice(self, output, logit, entropy, loss):
+        if self.adviced_logits is not None:
+            self.adviced_outputs = torch.cat([self.adviced_outputs, output])
+            self.adviced_logits = torch.cat([self.adviced_logits, logit])
+            self.adviced_entropies = torch.cat([self.adviced_entropies, entropy])
+            self.adviced_loss = torch.cat([self.adviced_loss, loss])
+        else:
+            self.adviced_outputs =  output
+            self.adviced_logits = logit
+            self.adviced_entropies =  entropy
+            self.adviced_loss =  loss
 
     def forward(self, x, mask=None):
         sequence_list, logits_list, entropy_list = [], [], []
@@ -289,27 +308,27 @@ class MyRnnSenderReinforce(nn.Module):
             #     wandb.log({'message unc':self.unc}, step=run.history.row['Epoch'])
             # else:
             #     wandb.log({'message argmax unc':self.unc}, step=run.history.row['Epoch'])
-            if self.multi_head >1:
-                if not self.give_advice:
-                    wandb.log({'Sender Unc': np.mean(self.unc_batch)}, commit=False)
-                    if self.advice_info is None:
-                        output = self.manager.get_advice(x, self.id)
-                        do_ask_advice = self.unc_batch > self.unc_threshold ## np array
-                        self.advice_info = [output, do_ask_advice]
-                    else:
-                        output, do_ask_advice = self.advice_info
-                        output[1] = output[1][mask]
-                        output[0] = output[0][mask]
-                        output[2] = output[2][mask]
-                        do_ask_advice = do_ask_advice[mask]
-                    adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
-                    unc_of_adviced = torch.Tensor(output[0])
-                    do_give_advice = output[2]
+            if self.multi_head >1 and self.advice_info is not None:
+                # if not self.give_advice:
+                #     wandb.log({'Sender Unc': np.mean(self.unc_batch)}, commit=False)
+                    # if self.advice_info is None:
+                    #     output = self.manager.get_advice(x, self.id)
+                    #     do_ask_advice = self.unc_batch > self.unc_threshold ## np array
+                    #     self.advice_info = [output, do_ask_advice]
+                    # else:
+                    output =  self.advice_info
+                    # output[1] = output[1][mask]
+                    # output[0] = output[0][mask]
+                    # output[2] = output[2][mask]
+                    # do_ask_advice = do_ask_advice[mask]
+                    adviced_seq = output # batch of seq len , 32x5
+                    # unc_of_adviced = torch.Tensor(output[0])
+                    # do_give_advice = output[2]
                     step_distr = distributions[final_id]
                     for step in range(self.max_len):
                         step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
-                        for idx, flag in enumerate(do_ask_advice):
-                            if flag and do_give_advice[idx]:
+                        for idx, advice in enumerate(adviced_seq):
+                            # if flag and do_give_advice[idx]:
                                 logits_list[final_id][idx] = step_logits_for_adviced[idx]
                                 sequence_list[final_id][idx] = adviced_seq[:, step][idx]
                     return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
@@ -445,6 +464,7 @@ class RnnReceiverReinforce(nn.Module):
         self.multi_head = True
         self.advice_mode(False)
         self.advice_info = None
+        self.clear_advices()
 
     def set_manager(self, manager):
         self.manager = manager
@@ -457,39 +477,57 @@ class RnnReceiverReinforce(nn.Module):
             self.eval()
         else:
             self.train()
+    def clear_advices(self):
+        self.adviced_logits = None
+        self.adviced_entropies = None
+        self.adviced_outputs = None
+        self.adviced_loss = None
+
+    def note_advice(self, output, logit, entropy, loss):
+        if self.adviced_logits is not None:
+            self.adviced_outputs = torch.cat([self.adviced_outputs, output])
+            self.adviced_logits = torch.cat([self.adviced_logits, logit])
+            self.adviced_entropies = torch.cat([self.adviced_entropies, entropy])
+            self.adviced_loss = torch.cat([self.adviced_loss, loss])
+        else:
+            self.adviced_outputs =  output
+            self.adviced_logits = logit
+            self.adviced_entropies =  entropy
+            self.adviced_loss =  loss
 
     def forward(self, message, input=None, lengths=None, mask=None):
         encoded = self.encoder(message)
         sample, logits, entropy, log_probs = self.agent(encoded, input)
         wandb.log({'Rec Entropy': entropy.mean()/np.log(3)}, commit=False)
         sample = sample.detach().clone()
-        if self.multi_head:
-            self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3))
-            if not self.give_advice:
-                wandb.log({'Rec Unc': np.mean(self.unc_batch)}, commit=False)
-                if self.advice_info is None:
-                    output = self.manager.get_advice(message, input, self.id)
-                    do_ask_advice = self.unc_batch > self.unc_threshold
-                    self.advice_info = [output, do_ask_advice]
-                else:
-                    output, do_ask_advice = self.advice_info
-                    output[1] = output[1][mask]
-                    output[0] = output[0][mask]
-                    output[2] = output[2][mask]
-                    do_ask_advice = do_ask_advice[mask]
-                adviced_action = output[1] # batch of seq len , 32x5
-                unc_of_adviced = output[0]
-                do_give_advice = output[2]
-                for idx, flag in enumerate(do_ask_advice):
-                    if flag and do_give_advice[idx]:
-                        # ac = adviced_action[idx].cpu().numpy()
-                        # bs = adviced_action.size(0)
-                        # bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor).cuda()
-                        logits[idx] = log_probs[idx][adviced_action[idx]]
-                        sample[idx] = adviced_action[idx]
-                return sample, logits, entropy
-            else:
-                return self.unc_batch, sample, logits, entropy
+
+        if self.multi_head and not self.advice_info:
+            # self.unc_batch = entropy.detach().cpu().numpy()/(np.log(3))
+            # # if not self.give_advice:
+            # wandb.log({'Rec Unc': np.mean(self.unc_batch)}, commit=False)
+            # if self.advice_info is None:
+            #     output = self.manager.get_advice(message, input, self.id)
+            #     do_ask_advice = self.unc_batch > self.unc_threshold
+            #     self.advice_info = [output, do_ask_advice]
+            # else:
+            output = self.advice_info
+            # output[1] = output[1][mask]
+            # output[0] = output[0][mask]
+            # output[2] = output[2][mask]
+            # do_ask_advice = do_ask_advice[mask]
+            adviced_action = output # batch of seq len , 32x5
+            # unc_of_adviced = output[0]
+            # do_give_advice = output[2]
+            for idx, advice in enumerate(adviced_action):
+                # if flag and do_give_advice[idx]:
+                    # ac = adviced_action[idx].cpu().numpy()
+                    # bs = adviced_action.size(0)
+                    # bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor).cuda()
+                    logits[idx] = log_probs[idx][adviced_action[idx]]
+                    sample[idx] = adviced_action[idx]
+            return sample, logits, entropy
+            # else:
+            #     return self.unc_batch, sample, logits, entropy
         return sample, logits, entropy
 
 
@@ -763,12 +801,12 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
     def forward(self, sender_input, labels, receiver_input=None):
 
-        index = np.random.choice(range(self.pop))
+        s_index = np.random.choice(range(self.pop))
+        r_index = np.random.choice(range(self.pop))
+        self.sender = self.sender_list[s_index]
+        self.receiver = self.receiver_list[r_index]
 
-        self.sender = self.sender_list[index]
-        self.receiver = self.receiver_list[index]
-
-        normal = self.sender.multi_head!=2
+        normal = True
 
         message, log_prob_s, entropy_s = self.sender(sender_input)
         original_message = message.clone()
@@ -777,56 +815,57 @@ class PopSenderReceiverRnnReinforce(nn.Module):
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
 
-        if not normal:
-          s_loss = loss.detach().clone()
-          tot_loss = loss.detach().clone()
-          successful_episodes = s_loss==-1
-          do_ask_advice = (torch.Tensor(self.sender.advice_info[1])==True).cuda()
-          do_give_advice = (torch.Tensor(self.sender.advice_info[0][2])==True).cuda()
-          learnt_advices = do_ask_advice*do_give_advice
-          mask = learnt_advices*successful_episodes
-          # print(s_loss)
-          # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"send learnt & succ":mask.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum().item()}, commit = False)
+        if give_advice:
+            c_loss = loss.detach().clone()
+            successful_episodes = c_loss==-1
+            mask = successful_episodes
+            for idx in range(self.pop):
+                if idx==s_index:
+                    continue
+                if mask.sum().item()<1:
+                    break
+                sen= self.sender_list[idx]
 
-          print("send learnt & succ:",mask.sum().item(), ", send asked:", do_ask_advice.sum().item(), ", send recieved:", do_give_advice.sum().item())
-          for i in range(self.learn_advice_iters):
-              if mask.sum().item()<1:
-                continue
-              f_message, f_log_prob_s, f_entropy_s = self.sender(sender_input[:, mask, :], mask.cpu().numpy().astype(bool))
-              # f_message, f_log_prob_s, f_entropy_s = n_message[mask], n_log_prob_s[mask], n_entropy_s[mask]
-              f_loss = s_loss[mask]
-              message = torch.cat([message, f_message])
-              log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
-              entropy_s = torch.cat([entropy_s, f_entropy_s])
-              tot_loss = torch.cat([tot_loss, f_loss])
+                sen.advice_info = message[mask]
 
-        if not normal:
-          r_loss = loss.detach().clone()
-          tot_r_loss = loss.detach().clone()
-          successful_episodes = r_loss==-1
-          do_ask_advice = (torch.Tensor(self.receiver.advice_info[1])==True).cuda()
-          do_give_advice = (torch.Tensor(self.receiver.advice_info[0][2])==True).cuda()
-          learnt_advices = do_ask_advice*do_give_advice
-          mask = learnt_advices*successful_episodes
-          # print(s_loss)
-          # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"rec learnt & succ":mask.sum().item(), "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum().item()}, commit=False)
+                for i in range(self.learn_advice_iters):
 
-          print("rec learnt & succ:",mask.sum().item(), ", rec asked: ", do_ask_advice.sum().item(), ", rec recieved:", do_give_advice.sum().item(), '\n')
-          for i in range(self.learn_advice_iters):
-              if mask.sum().item()<1:
-                continue
-              _ , f_log_prob_r, f_entropy_r = self.receiver(original_message[mask], receiver_input[:, mask, :], message_lengths[mask], mask.cpu().numpy().astype(bool))
 
-              # f_log_prob_r, f_entropy_r = n_log_prob_r[mask], n_entropy_r[mask]
-              f_loss = r_loss[mask]
-              log_prob_r = torch.cat([log_prob_r, f_log_prob_r])
-              entropy_r = torch.cat([entropy_r, f_entropy_r])
-              tot_r_loss = torch.cat([tot_r_loss, f_loss])
+                    message, log_prob_s, entropy_s = sen(sender_input[:, mask, :])
 
-        self.sender.advice_info = None
-        self.receiver.advice_info = None
+                    sen.note_advice(message, log_prob_s, entropy_s, c_loss[mask])
+
+                sen.advice_info = None
+
+            self.sender.note_advice(message, log_prob_s, entropy_s, loss)
+
+            message, log_prob_s, entropy_s, sender_loss = self.sender.adviced_outputs, self.sender.adviced_logits, self.sender.adviced_entropies, self.sender.adviced_loss
+
+            for idx in range(self.pop):
+                if idx==r_index:
+                    continue
+                if mask.sum().item()<1:
+                    break
+                rec= self.receiver_list[idx]
+
+                rec.advice_info = receiver_output[mask]
+
+                for i in range(self.learn_advice_iters):
+                    receiver_output, log_prob_r, entropy_r = rec(message[mask], receiver_input[:, mask, :], message_lengths[mask])
+
+                    rec.note_advice(receiver_output, log_prob_r, entropy_r, c_loss[mask])
+
+
+                rec.advice_info = None
+
+            self.receiver.note_advice(receiver_output, log_prob_r, entropy_r)
+
+            receiver_output, log_prob_r, entropy_r, rec_loss = self.receiver.adviced_outputs, self.receiver.adviced_logits, self.receiver.adviced_entropies, self.receiver.adviced_loss
+
+
+
+        self.sender.clear_advices()
+        self.receiver.clear_advices()
         message_lengths = find_lengths(message)
         # the entropy of the outputs of S before and including the eos symbol - as we don't care about what's after
         effective_entropy_s = torch.zeros_like(entropy_s[:, 0])

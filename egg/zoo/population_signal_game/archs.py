@@ -49,10 +49,10 @@ class InformedSenderMultiHead(nn.Module):
         # h of size (batch_size, embedding_size)
         h1 = self.lin4(h)
         # h2 = self.lin5(h)
-        h = (h1+h2)/2
-        self.unc = nn.CosineSimilarity(dim=1)(h1.detach(), h2.detach()).mean()
+        # h = (h1+h2)/2
+        # self.unc = nn.CosineSimilarity(dim=1)(h1.detach(), h2.detach()).mean()
         # wandb.log({'cosine unc':self.unc})
-        h = h.mul(1./self.temp)
+        # h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)
         if self.advice_mode:
             logits = [F.log_softmax(h, dim=1)]

@@ -228,8 +228,8 @@ class MyRnnSenderReinforce(nn.Module):
         agent_outs = self.agent(x)
         if not self.multi_head:
             agent_outs = [agent_outs]
-        distributions = []
-        for head_id, output in enumerate(agent_outs):
+        big_step_logits = []
+        # for head_id, output in enumerate(agent_outs):
             prev_hidden = [output]
             prev_hidden.extend([torch.zeros_like(prev_hidden[0]) for _ in range(self.num_layers - 1)])
 
@@ -240,7 +240,7 @@ class MyRnnSenderReinforce(nn.Module):
             sequence = []
             logits = []
             entropy = []
-            step_distr = []
+            step_logits_arr = []
             for step in range(self.max_len):
                 for i, layer in enumerate(self.cells):
                     if isinstance(layer, nn.LSTMCell):
@@ -254,7 +254,7 @@ class MyRnnSenderReinforce(nn.Module):
                 step_logits = F.log_softmax(self.hidden_to_output(h_t), dim=1)
                 distr = Categorical(logits=step_logits)
                 entropy.append(distr.entropy())
-                step_distr.append(distr)
+                step_logits_arr.append(step_logits)
 
                 if self.training or self.give_advice:
                     x_out = distr.sample()
@@ -265,7 +265,7 @@ class MyRnnSenderReinforce(nn.Module):
                 input = self.embedding(x_out)
                 sequence.append(x_out)
 
-            distributions.append(step_distr)
+            big_step_logits.append(step_logits_arr)
 
             sequence = torch.stack(sequence).permute(1, 0)
             logits = torch.stack(logits).permute(1, 0)
@@ -281,6 +281,7 @@ class MyRnnSenderReinforce(nn.Module):
             logits_list.append(logits)
             entropy_list.append(entropy)
         final_id = np.random.choice(range(len(agent_outs)))
+        # final_id = 0
         # print(sequence_list[0], sequence_list[1])
         if self.multi_head:
             self.unc_batch = cal_batch_ld(sequence_list[0], sequence_list[1])
@@ -306,17 +307,17 @@ class MyRnnSenderReinforce(nn.Module):
                     adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
                     unc_of_adviced = torch.Tensor(output[0])
                     do_give_advice = output[2]
-                    step_distr = distributions[final_id]
+                    my_step_logits = big_step_logits[final_id]
                     c=0
                     for idx, flag in enumerate(do_ask_advice):
                             if flag and do_give_advice[idx]:
                               c+=1
                               for step in range(self.max_len):
-                                step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
+                                # step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
 
 
-                                logits_list[final_id][idx] = step_logits_for_adviced[idx]
-                                sequence_list[final_id][idx] = adviced_seq[:, step][idx]
+                                logits_list[final_id][idx][step] = my_step_logits[step][idx][adviced_seq[idx, step]]
+                                sequence_list[final_id][idx][step] = adviced_seq[idx, step]
                     print(c, " adv learnt")
                     return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
                 else:

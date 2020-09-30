@@ -87,7 +87,7 @@ def get_game(opt):
         receiver.id = i
         sender_list.append(sender)
         receiver_list.append(receiver)
-    game = core.PopSymbolGameReinforce(sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+    game = core.PopSymbolGameReinforce(sender_list, receiver_list, pop, opt.multi_head, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
 
 
     return game

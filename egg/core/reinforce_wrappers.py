@@ -51,6 +51,11 @@ class ReinforceWrapper(nn.Module):
     def __init__(self, agent):
         super(ReinforceWrapper, self).__init__()
         self.agent = agent
+        self.have_advice_info = False
+
+    def clear_advices(self):
+        self.advice_info = []
+        self.have_advice_info = False
 
     def forward(self, *args, **kwargs):
         logits = self.agent(*args, **kwargs)
@@ -62,7 +67,11 @@ class ReinforceWrapper(nn.Module):
             sample = distr.sample()
         else:
             sample = logits.argmax(dim=1)
-        log_prob = distr.log_prob(sample)
+        if self.have_advice_info:
+            output = self.advice_info[-1]
+            log_prob = distr.log_prob(output)
+        else:
+            log_prob = distr.log_prob(sample)
 
         return sample, log_prob, entropy
 
@@ -95,7 +104,7 @@ class PopSymbolGameReinforce(nn.Module):
     """
     A single-symbol Sender/Receiver game implemented with Reinforce.
     """
-    def __init__(self, sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.0, receiver_entropy_coeff=0.0, baseline_type=MeanBaseline):
+    def __init__(self, sender_list, receiver_list, pop, give_advice, loss, sender_entropy_coeff=0.0, receiver_entropy_coeff=0.0, baseline_type=MeanBaseline):
         """
         :param sender: Sender agent. On forward, returns a tuple of (message, log-prob of the message, entropy).
         :param receiver: Receiver agent. On forward, accepts a message and the dedicated receiver input. Returns
@@ -120,7 +129,13 @@ class PopSymbolGameReinforce(nn.Module):
         self.receiver_entropy_coeff = receiver_entropy_coeff
         self.sender_entropy_coeff = sender_entropy_coeff
 
-        self.baseline = baseline_type()
+        self.give_advice = give_advice
+        self.learn_advice_iters = 10
+        if self.give_advice:
+            self.s_baseline = baseline_type()
+            self.r_baseline = baseline_type()
+        else:
+            self.baseline = baseline_type()
 
     def forward(self, sender_input, labels, receiver_input=None):
         s_index = np.random.choice(range(self.pop))
@@ -129,22 +144,82 @@ class PopSymbolGameReinforce(nn.Module):
         self.receiver = self.receiver_list[r_index]
 
         message, sender_log_prob, sender_entropy = self.sender(sender_input)
+        original_message = message.clone()
         receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
 
         loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-        policy_loss = ((loss.detach() - self.baseline.predict(loss.detach())) * (sender_log_prob + receiver_log_prob)).mean()
+        sender_loss = loss.detach().clone()
+        rec_loss = loss.detach().clone()
+
+        if self.give_advice:
+            c_loss = loss.detach().clone()
+            successful_episodes = c_loss==-1
+            mask = successful_episodes
+            for idx in range(self.pop):
+                if idx==s_index:
+                    continue
+
+                if mask.sum().item()<1:
+                    break
+
+                sen = self.sender_list[idx]
+
+                sen.advice_info.append(original_message[mask])
+                sen.have_advice_info = True
+
+                for i in range(self.learn_advice_iters):
+                  n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
+                  message = torch.cat([message, n_message])
+                  sender_log_prob = torch.cat([sender_log_prob, n_log_prob_s])
+                  sender_entropy = torch.cat([sender_entropy, n_entropy_s])
+                  sender_loss = torch.cat([sender_loss, c_loss[mask]])
+                sen.have_advice_info = False
+
+            for idx in range(self.pop):
+                if idx==r_index:
+                    continue
+                if mask.sum().item()<1:
+                    break
+
+                rec = self.receiver_list[idx]
+
+                rec.advice_info.append(receiver_output[mask])
+                rec.have_advice_info = True
+
+                for i in range(self.learn_advice_iters):
+                  n_receiver_output, n_log_prob_r, n_entropy_r = rec(original_message[mask], receiver_input[:, mask, :], message_lengths[mask])
+                  receiver_log_prob = torch.cat([receiver_log_prob, n_log_prob_r])
+                  receiver_entropy = torch.cat([receiver_entropy, n_entropy_r])
+                  rec_loss = torch.cat([rec_loss, c_loss[mask]])
+                rec.have_advice_info = False
+
+        self.sender.clear_advices()
+        self.receiver.clear_advices()
+        if self.give_advice:
+            policy_loss_s = ((sender_loss.detach() - self.s_baseline.predict(sender_loss.detach())) * (sender_log_pro)).mean()
+            policy_loss_r = ((rec_loss.detach() - self.r_baseline.predict(rec_loss.detach())) * (receiver_log_prob)).mean()
+            policy_loss = policy_loss_r + policy_loss_s
+        else:
+            policy_loss = ((loss.detach() - self.baseline.predict(loss.detach())) * (sender_log_prob + receiver_log_prob)).mean()
         entropy_loss = -(sender_entropy.mean() * self.sender_entropy_coeff + receiver_entropy.mean() * self.receiver_entropy_coeff)
 
         if self.training:
-            self.baseline.update(loss.detach())
+            if self.give_advice:
+                self.s_baseline.update(sender_loss.detach())
+                self.r_baseline.update(rec_loss.detach())
+            else:
+                self.baseline.update(loss.detach())
 
         full_loss = policy_loss + entropy_loss + loss.mean()
 
         for k, v in rest_info.items():
             if hasattr(v, 'mean'):
                 rest_info[k] = v.mean().item()
+        if self.give_advice:
+            rest_info['baseline'] = self.s_baseline.predict(sender_loss.detach()).mean()
+        else:
+            rest_info['baseline'] = self.baseline.predict(loss.detach()).mean()
 
-        rest_info['baseline'] = self.baseline.predict(loss.detach()).mean()
         rest_info['loss'] = loss.mean().item()
         rest_info['sender_entropy'] = sender_entropy.mean()
         rest_info['receiver_entropy'] = receiver_entropy.mean()

@@ -87,13 +87,8 @@ def get_game(opt):
         receiver.id = i
         sender_list.append(sender)
         receiver_list.append(receiver)
-    game = core.PopSymbolGameReinforce(
-        sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
-    elif opts.mode == 'gs':
-        sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
-        game = core.SymbolGameGS(sender, receiver, loss_nll)
-    else:
-        raise RuntimeError(f"Unknown training mode: {opts.mode}")
+    game = core.PopSymbolGameReinforce(sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+
 
     return game
 

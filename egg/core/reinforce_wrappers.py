@@ -111,7 +111,7 @@ class PopSymbolGameReinforce(nn.Module):
         :param receiver_entropy_coeff: The entropy regularizatino coefficient for Receiver
         :param baseline_type: Callable, returns a baseline instance (eg a class specializing core.baselines.Baseline)
         """
-        super(SymbolGameReinforce, self).__init__()
+        super(PopSymbolGameReinforce, self).__init__()
         self.sender_list = nn.ModuleList(sender_list)
         self.receiver_list = nn.ModuleList(receiver_list)
         self.pop = pop

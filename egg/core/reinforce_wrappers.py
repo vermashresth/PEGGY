@@ -51,7 +51,7 @@ class ReinforceWrapper(nn.Module):
     def __init__(self, agent):
         super(ReinforceWrapper, self).__init__()
         self.agent = agent
-        self.have_advice_info = False
+        self.clear_advices()
 
     def clear_advices(self):
         self.advice_info = []
@@ -187,7 +187,7 @@ class PopSymbolGameReinforce(nn.Module):
                 rec.have_advice_info = True
 
                 for i in range(self.learn_advice_iters):
-                  n_receiver_output, n_log_prob_r, n_entropy_r = rec(original_message[mask], receiver_input[:, mask, :], message_lengths[mask])
+                  n_receiver_output, n_log_prob_r, n_entropy_r = rec(original_message[mask], receiver_input[:, mask, :])
                   receiver_log_prob = torch.cat([receiver_log_prob, n_log_prob_r])
                   receiver_entropy = torch.cat([receiver_entropy, n_entropy_r])
                   rec_loss = torch.cat([rec_loss, c_loss[mask]])
@@ -196,7 +196,7 @@ class PopSymbolGameReinforce(nn.Module):
         self.sender.clear_advices()
         self.receiver.clear_advices()
         if self.give_advice:
-            policy_loss_s = ((sender_loss.detach() - self.s_baseline.predict(sender_loss.detach())) * (sender_log_pro)).mean()
+            policy_loss_s = ((sender_loss.detach() - self.s_baseline.predict(sender_loss.detach())) * (sender_log_prob)).mean()
             policy_loss_r = ((rec_loss.detach() - self.r_baseline.predict(rec_loss.detach())) * (receiver_log_prob)).mean()
             policy_loss = policy_loss_r + policy_loss_s
         else:

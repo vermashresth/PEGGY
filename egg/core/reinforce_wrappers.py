@@ -91,6 +91,65 @@ class ReinforceDeterministicWrapper(nn.Module):
 
         return out, torch.zeros(1).to(out.device), torch.zeros(1).to(out.device)
 
+class PopSymbolGameReinforce(nn.Module):
+    """
+    A single-symbol Sender/Receiver game implemented with Reinforce.
+    """
+    def __init__(self, sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.0, receiver_entropy_coeff=0.0, baseline_type=MeanBaseline):
+        """
+        :param sender: Sender agent. On forward, returns a tuple of (message, log-prob of the message, entropy).
+        :param receiver: Receiver agent. On forward, accepts a message and the dedicated receiver input. Returns
+            a tuple of (output, log-probs, entropy).
+        :param loss: The loss function that accepts:
+            sender_input: input of Sender
+            message: the is sent by Sender
+            receiver_input: input of Receiver from the dataset
+            receiver_output: output of Receiver
+            labels: labels assigned to Sender's input data
+          and outputs the end-to-end loss. Can be non-differentiable; if it is differentiable, this will be leveraged
+        :param sender_entropy_coeff: The entropy regularization coefficient for Sender
+        :param receiver_entropy_coeff: The entropy regularizatino coefficient for Receiver
+        :param baseline_type: Callable, returns a baseline instance (eg a class specializing core.baselines.Baseline)
+        """
+        super(SymbolGameReinforce, self).__init__()
+        self.sender_list = nn.ModuleList(sender_list)
+        self.receiver_list = nn.ModuleList(receiver_list)
+        self.pop = pop
+        self.loss = loss
+
+        self.receiver_entropy_coeff = receiver_entropy_coeff
+        self.sender_entropy_coeff = sender_entropy_coeff
+
+        self.baseline = baseline_type()
+
+    def forward(self, sender_input, labels, receiver_input=None):
+        s_index = np.random.choice(range(self.pop))
+        r_index = np.random.choice(range(self.pop))
+        self.sender = self.sender_list[s_index]
+        self.receiver = self.receiver_list[r_index]
+
+        message, sender_log_prob, sender_entropy = self.sender(sender_input)
+        receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
+
+        loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
+        policy_loss = ((loss.detach() - self.baseline.predict(loss.detach())) * (sender_log_prob + receiver_log_prob)).mean()
+        entropy_loss = -(sender_entropy.mean() * self.sender_entropy_coeff + receiver_entropy.mean() * self.receiver_entropy_coeff)
+
+        if self.training:
+            self.baseline.update(loss.detach())
+
+        full_loss = policy_loss + entropy_loss + loss.mean()
+
+        for k, v in rest_info.items():
+            if hasattr(v, 'mean'):
+                rest_info[k] = v.mean().item()
+
+        rest_info['baseline'] = self.baseline.predict(loss.detach()).mean()
+        rest_info['loss'] = loss.mean().item()
+        rest_info['sender_entropy'] = sender_entropy.mean()
+        rest_info['receiver_entropy'] = receiver_entropy.mean()
+
+        return full_loss, rest_info
 
 class SymbolGameReinforce(nn.Module):
     """

@@ -71,16 +71,24 @@ def loss_nll(_sender_input, _message, _receiver_input, receiver_output, labels):
 
 def get_game(opt):
     feat_size = 4096
-    sender = InformedSender(opt.game_size, feat_size,
-                            opt.embedding_size, opt.hidden_size, opt.vocab_size,
-                            temp=opt.tau_s)
-    receiver = Receiver(opt.game_size, feat_size,
-                        opt.embedding_size, opt.vocab_size, reinforce=(opts.mode == 'rf'))
-    if opts.mode == 'rf':
-        sender = core.ReinforceWrapper(sender)
-        receiver = core.ReinforceWrapper(receiver)
-        game = core.SymbolGameReinforce(
-            sender, receiver, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+    pop = opts.pop_size
+    sender_list = []
+    receiver_list = []
+    for i in range(pop):
+        sender = InformedSender(opt.game_size, feat_size,
+                                opt.embedding_size, opt.hidden_size, opt.vocab_size,
+                                temp=opt.tau_s)
+        receiver = Receiver(opt.game_size, feat_size,
+                            opt.embedding_size, opt.vocab_size, reinforce=(opts.mode == 'rf'))
+        if opts.mode == 'rf':
+            sender = core.ReinforceWrapper(sender)
+            receiver = core.ReinforceWrapper(receiver)
+        sender.id = i
+        receiver.id = i
+        sender_list.append(sender)
+        receiver_list.append(receiver)
+    game = core.PopSymbolGameReinforce(
+        sender_list, receiver_list, pop, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
     elif opts.mode == 'gs':
         sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
         game = core.SymbolGameGS(sender, receiver, loss_nll)
@@ -156,7 +164,7 @@ if __name__ == '__main__':
     validation_loader = ImagenetLoader(dataset, opt=opts, batch_size=opts.batch_size,
                                        batches_per_epoch=opts.batches_per_epoch,
                                        seed=7)
-    game = get_my_game(opts)
+    game = get_game(opts)
     optimizer = core.build_optimizer(game.parameters())
     callback = None
     if opts.mode == 'gs':

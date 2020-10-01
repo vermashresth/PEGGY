@@ -131,13 +131,17 @@ class PopSymbolGameReinforce(nn.Module):
 
         self.give_advice = give_advice
         self.learn_advice_iters = 10
+        self.s_spec_succ = [[] for _ in range(self.pop)]
+        self.r_spec_succ = [[] for _ in range(self.pop)]
+        self.s_spec_avg_succ = [0 for _ in range(self.pop)]
+        self.r_spec_avg_succ = [0 for _ in range(self.pop)]
         if self.give_advice:
             self.s_baseline = baseline_type()
             self.r_baseline = baseline_type()
         else:
             self.baseline = baseline_type()
 
-    def forward(self, sender_input, labels, receiver_input=None):
+    def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
         s_index = np.random.choice(range(self.pop))
         r_index = np.random.choice(range(self.pop))
         self.sender = self.sender_list[s_index]
@@ -148,6 +152,13 @@ class PopSymbolGameReinforce(nn.Module):
         receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
 
         loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
+
+        spec = np.all(np.array(concept_batch)==[0,1,2], 1)
+        if np.any(spec):
+            self.s_spec_succ[s_index].extend(loss[spec].cpu().numpy())
+            self.r_spec_succ[r_index].extend(loss[spec].cpu().numpy())
+            self.s_spec_avg_succ[s_index] = -np.mean(self.s_spec_succ[s_index][-50:])
+            self.r_spec_avg_succ[s_index] = -np.mean(self.r_spec_succ[r_index][-50:])
         sender_loss = loss.detach().clone()
         rec_loss = loss.detach().clone()
 
@@ -223,6 +234,11 @@ class PopSymbolGameReinforce(nn.Module):
         rest_info['loss'] = loss.mean().item()
         rest_info['sender_entropy'] = sender_entropy.mean()
         rest_info['receiver_entropy'] = receiver_entropy.mean()
+        # print(self.r_spec_avg_succ, [len(self.r_spec_succ[i]) for i in range(self.pop)])
+        # print(self.s_spec_avg_succ, [len(self.s_spec_succ[i]) for i in range(self.pop)])
+
+        wandb.log({'Specialization Sender': max(self.s_spec_avg_succ) - min(self.s_spec_avg_succ)}, commit=False)
+        wandb.log({'Specialization Receiver': max(self.r_spec_avg_succ) - min(self.r_spec_avg_succ)}, commit=False)
 
         return full_loss, rest_info
 

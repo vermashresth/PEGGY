@@ -35,7 +35,7 @@ class _BatchIterator:
 
         C = len(self.loader.dataset.obj2id.keys())  # number of concepts
         images_indexes_sender = np.zeros((opt.batch_size, opt.game_size))
-
+        concept_batch = []
         for b in range(opt.batch_size):
             if opt.same:
                 # randomly sample a concept
@@ -56,7 +56,8 @@ class _BatchIterator:
                     idxs_sender.append(idx[0])
 
                 images_indexes_sender[b, :] = np.array(idxs_sender)
-
+            concept_batch.append(concepts)
+        # print('Tot: ', C,'Concepts: ', concepts, opt.same)
         images_vectors_sender = []
 
         for i in range(opt.game_size):
@@ -73,7 +74,7 @@ class _BatchIterator:
             images_vectors_receiver[:, i,
                                     :] = images_vectors_sender[permutation, i, :]
             y[i] = permutation.argmin()
-        return images_vectors_sender, y, images_vectors_receiver
+        return images_vectors_sender, y, images_vectors_receiver, concept_batch
 
 
 class ImagenetLoader(torch.utils.data.DataLoader):

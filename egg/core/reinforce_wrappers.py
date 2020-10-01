@@ -100,6 +100,78 @@ class ReinforceDeterministicWrapper(nn.Module):
 
         return out, torch.zeros(1).to(out.device), torch.zeros(1).to(out.device)
 
+def get_graph(pop, g_type):
+    g = {i:[] for i in range(pop)}
+    if g_type == 0: # everyone to everyone including oneself
+        g = {i:[j for j in range(pop)] for i in range(pop)}
+    elif g_type == 1: # everyone to everyone else, doesnt include oneself
+        g = {i:[j for j in range(pop) if j!=i] for i in range(pop)}
+    elif g_type == 2: # thick length wise
+        assert pop==10
+        g = {0:[1,2],
+             1:[0,3],
+             2:[0,3,4],
+             3:[1,2,5,6],
+             4:[2,6],
+             5:[3,7],
+             6:[3,7,4,8],
+             7:[5,6,9],
+             8:[6,9],
+             9:[7,8]}
+    elif g_type == 3: # thin length wise
+        assert pop==10
+        g = {0:[1,2],
+             1:[0,3],
+             2:[0,3],
+             3:[1, 2, 4, 5],
+             4:[3,6],
+             5:[3,6],
+             6:[4,5,7,8],
+             7:[6,9],
+             8:[6,9],
+             9:[7,8]}
+    elif g_type == 4:
+        assert pop==9
+        g = {0:[1,2],
+             1:[0,2],
+             2:[0,1],
+             3:[4,5],
+             4:[3,5],
+             5:[3,4],
+             6:[7,8],
+             7:[8,6],
+             8:[6,7]}
+    return g
+
+SEND_REC_REL = 0
+ADVICE_REL = 1
+
+NORMAL_MODE = 0
+ADV_THICK = 1
+ADV_THIN = 2
+COMM_CLUS_333 = 3
+
+def get_allowed_partners(index, req_type, game_mode, pop):
+    # req_type can be 0: sender-receiver index, 1: advicee index
+    # game_mode can be 0: normal, 1: advice restricted thick, 2: advice restricted thin,  3: advice as well as game pairing restricted 3-3-3
+    # for game mode 1, game configurations can be
+    if req_type==SEND_REC_REL: # sender recievr asked
+        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN]:
+            g = get_graph(pop, 0)
+        elif game_mode==COMM_333:
+            g = get_graph(pop, 4)
+    elif req_type==ADVICE_REL:
+        if game_mode==NORMAL_MODE: #normal mode
+            g = get_graph(pop, 1)
+        elif game_mode==ADV_THICK:
+            g = get_graph(pop, 2)
+        elif game_mode==ADV_THIN:
+            g = get_graph(pop, 3)
+        elif game_mode==COMM_333:
+            g = get_graph(pop, 4)
+
+    return g[index]
+
 class PopSymbolGameReinforce(nn.Module):
     """
     A single-symbol Sender/Receiver game implemented with Reinforce.
@@ -143,7 +215,11 @@ class PopSymbolGameReinforce(nn.Module):
 
     def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
         s_index = np.random.choice(range(self.pop))
-        r_index = np.random.choice(range(self.pop))
+
+        game_mode = NORMAL_MODE
+        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=game_mode)
+        r_index = np.random.choice(partners)
+
         self.sender = self.sender_list[s_index]
         self.receiver = self.receiver_list[r_index]
 
@@ -166,9 +242,8 @@ class PopSymbolGameReinforce(nn.Module):
             c_loss = loss.detach().clone()
             successful_episodes = c_loss==-1
             mask = successful_episodes
-            for idx in range(self.pop):
-                if idx==s_index:
-                    continue
+            partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
+            for idx in partners:
 
                 if mask.sum().item()<1:
                     break
@@ -186,9 +261,9 @@ class PopSymbolGameReinforce(nn.Module):
                   sender_loss = torch.cat([sender_loss, c_loss[mask]])
                 sen.have_advice_info = False
 
-            for idx in range(self.pop):
-                if idx==r_index:
-                    continue
+            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
+            for idx in partners:
+                
                 if mask.sum().item()<1:
                     break
 

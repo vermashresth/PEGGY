@@ -148,7 +148,7 @@ def get_my_game(opt):
 
 if __name__ == '__main__':
     opts = parse_arguments()
-    wandb.init(project="referential-advice", name='{}-pop_seed-{}_size-{}_pop_mode-{}_multi_head-{}'.format(opts.exp_prefix, opts.seed, opts.pop_size, opts.pop_mode, opts.multi_head))
+    wandb.init(project="referential-advice-single", name='{}-pop_seed-{}_size-{}_pop_mode-{}_multi_head-{}'.format(opts.exp_prefix, opts.seed, opts.pop_size, opts.pop_mode, opts.multi_head))
     wandb.config.exp_id = 'pop_size-{}_pop_mode-{}_multi_head-{}'.format(opts.pop_size, opts.pop_mode, opts.multi_head)
 
     data_folder = os.path.join(opts.root, "train/")

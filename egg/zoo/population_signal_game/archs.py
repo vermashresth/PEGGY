@@ -87,6 +87,7 @@ class InformedSender(nn.Module):
                  vocab_size=100, temp=1.):
         super(InformedSender, self).__init__()
         self.game_size = game_size
+        self.feat_size = feat_size
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
@@ -204,6 +205,9 @@ class Receiver(nn.Module):
         super(Receiver, self).__init__()
         self.game_size = game_size
         self.embedding_size = embedding_size
+        self.feat_size = feat_size
+        self.vocab_size = vocab_size
+        self.reinforce = reinforce
 
         self.lin1 = nn.Linear(feat_size, embedding_size, bias=False)
         if reinforce:

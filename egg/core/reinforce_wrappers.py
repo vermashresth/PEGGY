@@ -18,6 +18,8 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
+import egg.core as core
+
 import wandb
 
 def cal_batch_ld(t1, t2):
@@ -213,12 +215,48 @@ class PopSymbolGameReinforce(nn.Module):
         else:
             self.baseline = baseline_type()
 
+
+        ds = self.sender_list[0].agent
+        dr = self.receiver_list[0].agent
+
+        self.sender_params = [ds.game_size, ds.feat_size,
+                                ds.embedding_size, ds.hidden_size, ds.vocab_size,
+                                ds.temp]
+        self.receiver_params = [dr.game_size, dr.feat_size,
+                            dr.embedding_size, dr.vocab_size, dr.reinforce]
+        self.ds = ds
+        self.dr = dr
+
+        self.time_keeper(reset_all=True)
+
+
+    def time_keeper(self, s_index=None, r_index=None, reset_all=False):
+        reset_max = 6000*(self.pop-1)/self.pop
+        if reset_all:
+            self.sender_times = [np.random.choice(reset_max) for _ in range(self.pop)]
+            self.receiver_times = [np.random.choice(reset_max) for _ in range(self.pop)]
+        else:
+            self.sender_times[s_index]+=1
+            if self.sender_times[s_index]>reset_max:
+                self.sender_list[s_index] = core.ReinforceWrapper(self.ds.__class__(*self.sender_params))
+                print("Reset done for {}th speaker")
+            self.receiver_times[r_index]+=1
+            if self.receiver_times[r_index]>reset_max:
+                self.receiver_list[r_index] = core.ReinforceWrapper(self.dr.__class__(*self.receiver_params))
+                print("Reset done for {}th reciever")
+
+
     def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
         s_index = np.random.choice(range(self.pop))
 
         game_mode = NORMAL_MODE
         partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=game_mode)
         r_index = np.random.choice(partners)
+
+        staggered_reset = False
+
+        if staggered_reset:
+            self.time_keeper(s_index, r_index)
 
         self.sender = self.sender_list[s_index]
         self.receiver = self.receiver_list[r_index]
@@ -263,7 +301,7 @@ class PopSymbolGameReinforce(nn.Module):
 
             partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
             for idx in partners:
-                
+
                 if mask.sum().item()<1:
                     break
 

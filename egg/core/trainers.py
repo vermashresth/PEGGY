@@ -150,6 +150,9 @@ class Trainer:
             if self.grad_norm:
                 torch.nn.utils.clip_grad_norm_(self.game.parameters(), self.grad_norm)
 
+            if self.game.remake_optimizer_pending:
+                self.optimizer = self.optimizer.__class__(self.game.parameters())
+                self.game.remake_optimizer_pending=False
             self.optimizer.step()
 
             n_batches += 1

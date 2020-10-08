@@ -201,7 +201,7 @@ class PopSymbolGameReinforce(nn.Module):
         self.reset_regime = False
         self.staggered_reset = False
         if self.reset_regime:
-            self.sender_list = nn.ModuleList(sender_list[0])
+            self.sender_list = nn.ModuleList([sender_list[0]])
         else:
             self.sender_list = nn.ModuleList(sender_list)
         self.receiver_list = nn.ModuleList(receiver_list)
@@ -223,6 +223,17 @@ class PopSymbolGameReinforce(nn.Module):
         else:
             self.baseline = baseline_type()
 
+        ds = self.sender_list[0].agent
+        dr = self.receiver_list[0].agent
+
+        self.sender_params = [ds.game_size, ds.feat_size,
+                                ds.embedding_size, ds.hidden_size, ds.vocab_size,
+                                ds.temp]
+        self.receiver_params = [dr.game_size, dr.feat_size,
+                            dr.embedding_size, dr.vocab_size, dr.reinforce]
+        self.ds = ds
+        self.dr = dr
+        self.remake_optimizer_pending=False
         self.time_keeper(reset_all=True)
 
 
@@ -244,13 +255,15 @@ class PopSymbolGameReinforce(nn.Module):
             #     print("Reset done for {}th speaker")
             self.receiver_times[r_index]+=1
             if self.receiver_times[r_index]>reset_max:
-                self.receiver_list[r_index].reset_weights()
+                self.receiver_list[r_index] = ReinforceWrapper(self.dr.__class__(*self.receiver_params)).cuda()
                 if self.staggered_reset:
                     self.receiver_times[r_index] = np.random.choice(reset_max)
                 else:
                     self.receiver_times[r_index] = 0
 
-                print("Reset done for {}th reciever")
+                print("Reset done for {}th reciever".format(r_index))
+                self.receiver_list = nn.ModuleList(self.receiver_list)
+                self.remake_optimizer_pending=True
 
 
     def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
@@ -265,7 +278,7 @@ class PopSymbolGameReinforce(nn.Module):
 
 
 
-        if self.staggered_reset and self.training:
+        if self.reset_regime and self.training:
             self.time_keeper(s_index, r_index)
 
         self.sender = self.sender_list[s_index]
@@ -282,7 +295,7 @@ class PopSymbolGameReinforce(nn.Module):
             self.s_spec_succ[s_index].extend(loss[spec].cpu().numpy())
             self.r_spec_succ[r_index].extend(loss[spec].cpu().numpy())
             self.s_spec_avg_succ[s_index] = -np.mean(self.s_spec_succ[s_index][-50:])
-            self.r_spec_avg_succ[s_index] = -np.mean(self.r_spec_succ[r_index][-50:])
+            self.r_spec_avg_succ[r_index] = -np.mean(self.r_spec_succ[r_index][-50:])
         sender_loss = loss.detach().clone()
         rec_loss = loss.detach().clone()
 

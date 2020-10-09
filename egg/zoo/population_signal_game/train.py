@@ -172,6 +172,6 @@ if __name__ == '__main__':
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
                            validation_data=validation_loader, callbacks=callbacks)
 
-    trainer.train(n_epochs=opts.n_epochs)
+    trainer.train(n_epochs=opts.n_epochs*opts.pop_size)
 
     core.close()

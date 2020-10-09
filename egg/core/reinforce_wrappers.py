@@ -378,7 +378,11 @@ class PopSymbolGameReinforce(nn.Module):
 
         wandb.log({'Specialization Sender': max(self.s_spec_avg_succ) - min(self.s_spec_avg_succ)}, commit=False)
         wandb.log({'Specialization Receiver': max(self.r_spec_avg_succ) - min(self.r_spec_avg_succ)}, commit=False)
-
+        if self.pop==5:
+            for id, suc in enumerate(np.sort(self.s_spec_avg_succ)):
+                wandb.log({'Specialization Rank-{} Sender(5)'.format(id): suc}, commit=False)
+            for id, suc in enumerate(np.sort(self.r_spec_avg_succ)):
+                wandb.log({'Specialization Rank-{} Receiver(5)'.format(id): suc}, commit=False)
         return full_loss, rest_info
 
 class SymbolGameReinforce(nn.Module):

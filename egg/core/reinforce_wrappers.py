@@ -107,11 +107,11 @@ class ReinforceDeterministicWrapper(nn.Module):
 
 def get_graph(pop, g_type):
     g = {i:[] for i in range(pop)}
-    if g_type == 0: # everyone to everyone including oneself
+    if g_type == -1: # everyone to everyone including oneself
         g = {i:[j for j in range(pop)] for i in range(pop)}
-    elif g_type == 1: # everyone to everyone else, doesnt include oneself
+    elif g_type == 0: # everyone to everyone else, doesnt include oneself
         g = {i:[j for j in range(pop) if j!=i] for i in range(pop)}
-    elif g_type == 2: # thick length wise
+    elif g_type == 1: # thick length wise
         assert pop==10
         g = {0:[1,2],
              1:[0,3],
@@ -123,7 +123,25 @@ def get_graph(pop, g_type):
              7:[5,6,9],
              8:[6,9],
              9:[7,8]}
-    elif g_type == 3: # thin length wise
+    elif g_type == 1.5: # thick length wise
+        assert pop==16
+        g = {0:[1,2],
+             1:[0,3],
+             2:[0,3,4],
+             3:[1,2,5,6],
+             4:[2,6],
+             5:[3,7],
+             6:[3,7,4,8],
+             7:[5,6,9,10],
+             8:[6,9],
+             9:[7,8,11,12],
+             10:[7,11],
+             11:[10,9,13,14],
+             12:[9,14],
+             13:[11,15],
+             14:[12,11,15],
+             15:[13,14]}
+    elif g_type == 2: # thin length wise
         assert pop==10
         g = {0:[1,2],
              1:[0,3],
@@ -135,17 +153,61 @@ def get_graph(pop, g_type):
              7:[6,9],
              8:[6,9],
              9:[7,8]}
-    elif g_type == 4:
-        assert pop==9
+    elif g_type == 2.5: # big thin length wise
+        assert pop==16
         g = {0:[1,2],
+             1:[0,3],
+             2:[0,3],
+             3:[1, 2, 4, 5],
+             4:[3,6],
+             5:[3,6],
+             6:[4,5,7,8],
+             7:[6,9],
+             8:[6,9],
+             9:[7,8],
+             10:[9,12],
+             11:[9,12],
+             12:[10,11,13,14],
+             13:[12,15],
+             14:[12,15],
+             15:[13,14}
+    elif g_type == 3: # v_thin length wise
+        assert pop==10
+        g = {0:[1],
              1:[0,2],
-             2:[0,1],
-             3:[4,5],
+             2:[1,3],
+             3:[2, 4],
              4:[3,5],
-             5:[3,4],
-             6:[7,8],
-             7:[8,6],
-             8:[6,7]}
+             5:[4,6],
+             6:[5,7],
+             7:[6,8],
+             8:[7,9],
+             9:[8]}
+    elif g_type == 3.5: # v_thin length wise
+        assert pop==16
+        g = {0:[1],
+             1:[0,2],
+             2:[1,3],
+             3:[2,4],
+             4:[3,5],
+             5:[4,6],
+             6:[5,7],
+             7:[6,8],
+             8:[7,9],
+             9:[8,10],
+             10:[9,11],
+             11:[10,12],
+             12:[11,13],
+             13:[12,14],
+             14:[13,15],
+             15:[14]}
+    elif g_type == 4:
+        ISLANDS = 3
+        g={}
+        for isle in range(ISLANDS):
+            for i in range(pop):
+                for j in range(pop)
+                    g[i+isle] = j+isle
     return g
 
 SEND_REC_REL = 0
@@ -154,26 +216,31 @@ ADVICE_REL = 1
 NORMAL_MODE = 0
 ADV_THICK = 1
 ADV_THIN = 2
-COMM_CLUS_333 = 3
+ADV_V_THIN = 3
+ADV_BIG_THICK = 1.5
+ADV_BIG_THIN = 2.5
+ADV_BIG_V_THIN = 3.5
+ISLE_MODE = 4
 
 def get_allowed_partners(index, req_type, game_mode, pop):
     # req_type can be 0: sender-receiver index, 1: advicee index
     # game_mode can be 0: normal, 1: advice restricted thick, 2: advice restricted thin,  3: advice as well as game pairing restricted 3-3-3
     # for game mode 1, game configurations can be
     if req_type==SEND_REC_REL: # sender recievr asked
-        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN]:
-            g = get_graph(pop, 0)
-        elif game_mode==COMM_333:
+        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN,ADV_V_THIN, ADV_BIG_THICK, ADV_BIG_THIN, ADV_BIG_V_THIN]:
+            g = get_graph(pop, -1)
+        elif game_mode==ISLE_MODE:
             g = get_graph(pop, 4)
     elif req_type==ADVICE_REL:
-        if game_mode==NORMAL_MODE: #normal mode
-            g = get_graph(pop, 1)
-        elif game_mode==ADV_THICK:
-            g = get_graph(pop, 2)
-        elif game_mode==ADV_THIN:
-            g = get_graph(pop, 3)
-        elif game_mode==COMM_333:
-            g = get_graph(pop, 4)
+        # if game_mode==NORMAL_MODE: #normal mode
+        #     g = get_graph(pop, 1)
+        # elif game_mode==ADV_THICK:
+        #     g = get_graph(pop, 2)
+        # elif game_mode==ADV_THIN:
+        #     g = get_graph(pop, 3)
+        # elif game_mode==COMM_333:
+        #     g = get_graph(pop, 4)
+        g = get_graph(pop, game_mode)
 
     return g[index]
 

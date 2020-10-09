@@ -68,6 +68,28 @@ def loss_nll(_sender_input, _message, _receiver_input, receiver_output, labels):
     acc = (labels == receiver_output.argmax(dim=1)).float().mean()
     return nll, {'acc': acc}
 
+def get_travel_game(opt):
+    feat_size = 4096
+    pop = opts.pop_size
+    sender_list = []
+    receiver_list = []
+    for i in range(pop):
+        sender = InformedSender(opt.game_size, feat_size,
+                                opt.embedding_size, opt.hidden_size, opt.vocab_size,
+                                temp=opt.tau_s)
+        receiver = Receiver(opt.game_size, feat_size,
+                            opt.embedding_size, opt.vocab_size, reinforce=(opts.mode == 'rf'))
+        if opts.mode == 'rf':
+            sender = core.ReinforceWrapper(sender)
+            receiver = core.ReinforceWrapper(receiver)
+        sender.id = i
+        receiver.id = i
+        sender_list.append(sender)
+        receiver_list.append(receiver)
+    game = core.PopSymbolGameReinforce(sender_list, receiver_list, pop, opt.multi_head, loss, sender_entropy_coeff=0.01, receiver_entropy_coeff=0.01)
+
+
+    return game
 
 def get_game(opt):
     feat_size = 4096
@@ -149,7 +171,7 @@ def get_my_game(opt):
 if __name__ == '__main__':
     opts = parse_arguments()
     wandb.init(project="referential-advice-clean", name='{}-pop_seed-{}_size-{}_pop_mode-{}_multi_head-{}'.format(opts.exp_prefix, opts.seed, opts.pop_size, opts.pop_mode, opts.multi_head))
-    wandb.config.exp_id = 'pop_size-{}_pop_mode-{}_multi_head-{}'.format(opts.pop_size, opts.pop_mode, opts.multi_head)
+    wandb.config.exp_id = '{}-pop_size-{}_pop_mode-{}_multi_head-{}'.format(opts.exp_prefix,opts.pop_size, opts.pop_mode, opts.multi_head)
 
     data_folder = os.path.join(opts.root, "train/")
     dataset = ImageNetFeat(root=data_folder)

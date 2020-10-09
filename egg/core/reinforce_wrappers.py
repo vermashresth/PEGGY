@@ -333,7 +333,7 @@ class PopSymbolGameReinforce(nn.Module):
         self.receiver_params = [dr.game_size, dr.feat_size,
                             dr.embedding_size, dr.vocab_size, dr.reinforce]
         self.concept_comb = list(itertools.product(list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE))))
-        self.speaker_utterances = [ [ [ [] for k in range(self.concept_comb)] for j in range(ISLANDS) ] for i in range(self.pop)]
+        self.speaker_utterances = [ [ [ [] for k in self.concept_comb] for j in range(ISLANDS) ] for i in range(self.pop)]
         self.ds = ds
         self.dr = dr
         self.remake_optimizer_pending=False

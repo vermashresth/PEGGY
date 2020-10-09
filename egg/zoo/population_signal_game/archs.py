@@ -130,7 +130,7 @@ class InformedSender(nn.Module):
             isle_id = torch.Tensor(isle_id).cuda()
             isle_id = isle_id.view(1, -1)
             isle_id = isle_id.repeat(h.size(0), 1)
-            h = torch.cat([h, isle_id])
+            h = torch.cat([h, isle_id], 1)
         h = self.lin4(h)
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)

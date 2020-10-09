@@ -18,7 +18,7 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
-
+import itertools
 import wandb
 
 def cal_batch_ld(t1, t2):
@@ -122,6 +122,8 @@ ISLE_ADV = 4.5
 ISLANDS = 3
 POP_IN_ISLE=[10,10,10] # OR 5
 GAME_MODE = NORMAL_MODE
+
+CONCEPT_SIZE = 26
 
 
 
@@ -330,6 +332,8 @@ class PopSymbolGameReinforce(nn.Module):
                                 ds.temp]
         self.receiver_params = [dr.game_size, dr.feat_size,
                             dr.embedding_size, dr.vocab_size, dr.reinforce]
+        self.concept_comb = itertools.combinations(list(range(CONCEPT_SIZE)))
+        self.speaker_utterances = [ [ [ [] for k in range(self.concept_comb)] for j in range(ISLANDS) ] for i in range(self.pop)]
         self.ds = ds
         self.dr = dr
         self.remake_optimizer_pending=False
@@ -404,6 +408,9 @@ class PopSymbolGameReinforce(nn.Module):
         loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
 
         spec = np.all(np.array(concept_batch)==[0,1,2], 1)
+        if GAME_MODE==ISLE_MODE:
+            for b, concept in enumerate(concept_batch)
+                self.speaker_utterances[s_index][isle][self.concept_comb.index(tuple(concept)).append(message[b].item())
         if np.any(spec):
             self.s_spec_succ[s_index].extend(loss[spec].cpu().numpy())
             self.r_spec_succ[r_index].extend(loss[spec].cpu().numpy())

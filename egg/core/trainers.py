@@ -187,6 +187,7 @@ class Trainer:
             if self.should_stop:
                 break
             wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']})
+            np.array(self.game.speaker_utterances).dump('sp_utter.npy')
             # wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']}, commit=epoch%self.game.pop==0)
         for callback in self.callbacks:
             callback.on_train_end()

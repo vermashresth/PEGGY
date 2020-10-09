@@ -182,11 +182,12 @@ class Trainer:
             #     validation_loss, rest = self.eval()
             #     for callback in self.callbacks:
             #         callback.on_test_end(validation_loss, rest)
-
+            if train_rest['acc']>0.85:
+                break
             if self.should_stop:
                 break
-            # wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']})
-            wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']}, commit=epoch%self.game.pop==0)
+            wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']})
+            # wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']}, commit=epoch%self.game.pop==0)
         for callback in self.callbacks:
             callback.on_train_end()
 

@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from .util import get_opts, move_to
 from .callbacks import Callback, ConsoleLogger, Checkpoint, CheckpointSaver, TensorboardLogger
 import wandb
+import numpy as np
 
 def _add_dicts(a, b):
     result = dict(a)

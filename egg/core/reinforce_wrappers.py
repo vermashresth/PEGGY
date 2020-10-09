@@ -105,7 +105,28 @@ class ReinforceDeterministicWrapper(nn.Module):
 
         return out, torch.zeros(1).to(out.device), torch.zeros(1).to(out.device)
 
+
+SEND_REC_REL = 0
+ADVICE_REL = 1
+
+NORMAL_MODE = 0
+ADV_THICK = 1
+ADV_THIN = 2
+ADV_V_THIN = 3
+ADV_BIG_THICK = 1.5
+ADV_BIG_THIN = 2.5
+ADV_BIG_V_THIN = 3.5
+ISLE_MODE = 4
+ISLE_ADV = 4.5
+
+ISLANDS = 3
+POP_IN_ISLE=[10,10,10] # OR 5
+GAME_MODE = NORMAL_MODE
+
+
+
 def get_graph(pop, g_type):
+    global ISLANDS, POP_IN_ISLE
     g = {i:[] for i in range(pop)}
     if g_type == -1: # everyone to everyone including oneself
         g = {i:[j for j in range(pop)] for i in range(pop)}
@@ -170,7 +191,7 @@ def get_graph(pop, g_type):
              12:[10,11,13,14],
              13:[12,15],
              14:[12,15],
-             15:[13,14}
+             15:[13,14]}
     elif g_type == 3: # v_thin length wise
         assert pop==10
         g = {0:[1],
@@ -202,25 +223,33 @@ def get_graph(pop, g_type):
              14:[13,15],
              15:[14]}
     elif g_type == 4:
-        ISLANDS = 3
-        g={}
-        for isle in range(ISLANDS):
-            for i in range(pop):
-                for j in range(pop)
-                    g[i+isle] = j+isle
+
+        g={i:[] for i in range(pop)}
+        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
+        for isle_id in range(len(POP_IN_ISLE)):
+            pop_till_now=sum(POP_IN_ISLE[:isle_id])
+            isle_pop = POP_IN_ISLE[isle_id]
+            for i in range(isle_pop):
+                for j in range(isle_pop):
+                    g[i+pop_till_now] += [j+pop_till_now]
+        if TRAVELLERS:
+          for i in range(TRAVELLERS):
+            g[i+sum(POP_IN_ISLE)] += list(range(sum(POP_IN_ISLE)))
+    elif g_type==4.5:
+        g={i:[] for i in range(pop)}
+        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
+        for isle_id in range(len(POP_IN_ISLE)):
+            pop_till_now=sum(POP_IN_ISLE[:isle_id])
+            isle_pop = POP_IN_ISLE[isle_id]
+            for i in range(isle_pop):
+                for j in range(isle_pop):
+                    if i!=j:
+                        g[i+pop_till_now] += [j+pop_till_now]
+        for i in range(pop-TRAVELLERS):
+            g[i]+=[t+(pop-TRAVELLERS) for t in range(TRAVELLERS)]
+
     return g
 
-SEND_REC_REL = 0
-ADVICE_REL = 1
-
-NORMAL_MODE = 0
-ADV_THICK = 1
-ADV_THIN = 2
-ADV_V_THIN = 3
-ADV_BIG_THICK = 1.5
-ADV_BIG_THIN = 2.5
-ADV_BIG_V_THIN = 3.5
-ISLE_MODE = 4
 
 def get_allowed_partners(index, req_type, game_mode, pop):
     # req_type can be 0: sender-receiver index, 1: advicee index
@@ -240,7 +269,10 @@ def get_allowed_partners(index, req_type, game_mode, pop):
         #     g = get_graph(pop, 3)
         # elif game_mode==COMM_333:
         #     g = get_graph(pop, 4)
-        g = get_graph(pop, game_mode)
+        if game_mode!=ISLE_MODE:
+            g = get_graph(pop, game_mode)
+        else:
+            g = get_graph(pop, ISLE_ADV)
 
     return g[index]
 
@@ -339,8 +371,7 @@ class PopSymbolGameReinforce(nn.Module):
         else:
             s_index = np.random.choice(range(self.pop))
 
-        game_mode = NORMAL_MODE
-        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=game_mode)
+        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=GAME_MODE)
         r_index = np.random.choice(partners)
 
 
@@ -352,16 +383,21 @@ class PopSymbolGameReinforce(nn.Module):
         self.sender = self.sender_list[s_index]
         self.receiver = self.receiver_list[r_index]
 
-        POP_PER_ISLE=10 # OR 5
-        if self.sender.agent.is_travelling:
-            travel=True
-            isle_id = [0,0,0]
-            isle_id [r_index//POP_PER_ISLE] = 1
 
-            message, sender_log_prob, sender_entropy = self.sender(sender_input, isle_id)
+
+
+        isle_id = [0,0,0]
+        for isle, _p in enumerate(POP_IN_ISLE):
+            if r_index<sum(POP_IN_ISLE[:isle+1]):
+                isle_id [isle] = 1
+                break
+        if self.sender.agent.is_travelling:
+            i_travel=True
+            message, sender_log_prob, sender_entropy = self.sender(sender_input, isle_id=isle_id)
         else:
+            i_travel=False
             message, sender_log_prob, sender_entropy = self.sender(sender_input)
-            
+
         original_message = message.clone()
         receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
 
@@ -383,7 +419,10 @@ class PopSymbolGameReinforce(nn.Module):
             if self.reset_regime:
                 partners = []
             else:
-                partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
+                partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
+            if i_travel:
+                start = sum(POP_IN_ISLE[:isle])
+                partners = [i+start for i in range(POP_IN_ISLE[isle])]
             for idx in partners:
 
                 if mask.sum().item()<1:
@@ -395,14 +434,17 @@ class PopSymbolGameReinforce(nn.Module):
                 sen.have_advice_info = True
 
                 for i in range(self.learn_advice_iters):
-                  n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
+                  if idx>=self.pop-TRAVELLERS: # advising a traveller
+                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone(), isle_id=isle_id)
+                  else:
+                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
                   message = torch.cat([message, n_message])
                   sender_log_prob = torch.cat([sender_log_prob, n_log_prob_s])
                   sender_entropy = torch.cat([sender_entropy, n_entropy_s])
                   sender_loss = torch.cat([sender_loss, c_loss[mask]])
                 sen.have_advice_info = False
 
-            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
+            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
             for idx in partners:
 
                 if mask.sum().item()<1:

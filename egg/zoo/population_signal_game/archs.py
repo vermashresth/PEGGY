@@ -127,7 +127,10 @@ class InformedSender(nn.Module):
         self.final_encoded_state = h.view(h.size(0), -1)
         # h of size (batch_size, embedding_size)
         if isle_id is not None:
-            h = torch.cat([h, travelling_id])
+            isle_id = torch.Tensor(isle_id).cuda()
+            isle_id = isle_id.view(1, -1)
+            isle_id = isle_id.repeat(h.size(0), 1)
+            h = torch.cat([h, isle_id])
         h = self.lin4(h)
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)

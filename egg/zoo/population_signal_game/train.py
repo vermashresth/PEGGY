@@ -102,7 +102,7 @@ def get_game(opt):
         if opt.travel and i>=pop-opt.travel:
             sender = InformedSender(opt.game_size, feat_size,
                                     opt.embedding_size, opt.hidden_size, opt.vocab_size,
-                                    temp=opt.tau_s, travelling_id=opt.travel)
+                                    temp=opt.tau_s, is_travelling=opt.travel)
         else:
             sender = InformedSender(opt.game_size, feat_size,
                                     opt.embedding_size, opt.hidden_size, opt.vocab_size,

@@ -84,7 +84,7 @@ class InformedSenderMultiHead(nn.Module):
 
 class InformedSender(nn.Module):
     def __init__(self, game_size, feat_size, embedding_size, hidden_size,
-                 vocab_size=100, temp=1.):
+                 vocab_size=100, temp=1., is_travelling=0):
         super(InformedSender, self).__init__()
         self.game_size = game_size
         self.feat_size = feat_size
@@ -100,9 +100,16 @@ class InformedSender(nn.Module):
         self.conv3 = nn.Conv2d(1, 1,
                                kernel_size=(hidden_size, 1),
                                stride=(hidden_size, 1), bias=False)
-        self.lin4 = nn.Linear(embedding_size, vocab_size, bias=False)
+        if is_travelling:
+            ISLANDS = 3
+            last_input = embedding_size + ISLANDS
+            self.is_travelling=True
+        else:
+            self.is_travelling=False
+            last_input = embedding_size
+        self.lin4 = nn.Linear(last_input, vocab_size, bias=False)
 
-    def forward(self, x, return_embeddings=False):
+    def forward(self, x, return_embeddings=False, isle_id=None):
         emb = self.return_embeddings(x)
 
         # in: h of size (batch_size, 1, game_size, embedding_size)
@@ -119,6 +126,8 @@ class InformedSender(nn.Module):
         h = h.squeeze(dim=1)
         self.final_encoded_state = h.view(h.size(0), -1)
         # h of size (batch_size, embedding_size)
+        if isle_id is not None:
+            h = torch.cat([h, travelling_id])
         h = self.lin4(h)
         h = h.mul(1./self.temp)
         # h of size (batch_size, vocab_size)

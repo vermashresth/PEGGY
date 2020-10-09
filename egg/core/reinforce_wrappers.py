@@ -345,13 +345,23 @@ class PopSymbolGameReinforce(nn.Module):
 
 
 
+
         if self.reset_regime and self.training:
             self.time_keeper(s_index, r_index)
 
         self.sender = self.sender_list[s_index]
         self.receiver = self.receiver_list[r_index]
 
-        message, sender_log_prob, sender_entropy = self.sender(sender_input)
+        POP_PER_ISLE=10 # OR 5
+        if self.sender.agent.is_travelling:
+            travel=True
+            isle_id = [0,0,0]
+            isle_id [r_index//POP_PER_ISLE] = 1
+
+            message, sender_log_prob, sender_entropy = self.sender(sender_input, isle_id)
+        else:
+            message, sender_log_prob, sender_entropy = self.sender(sender_input)
+            
         original_message = message.clone()
         receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
 

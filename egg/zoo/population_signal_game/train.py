@@ -43,6 +43,8 @@ def parse_arguments():
                         help='GS temperature')
     parser.add_argument('--multi_head', type=int, default=0,
                         help='0, 1')
+    parser.add_argument('--travel', type=int, default=0,
+                        help='0, 1')
     parser.add_argument('--exp_prefix', type=str, default='',
                         help='blahh')
     opt = core.init(parser)
@@ -97,9 +99,14 @@ def get_game(opt):
     sender_list = []
     receiver_list = []
     for i in range(pop):
-        sender = InformedSender(opt.game_size, feat_size,
-                                opt.embedding_size, opt.hidden_size, opt.vocab_size,
-                                temp=opt.tau_s)
+        if opt.travel and i>=pop-opt.travel:
+            sender = InformedSender(opt.game_size, feat_size,
+                                    opt.embedding_size, opt.hidden_size, opt.vocab_size,
+                                    temp=opt.tau_s, travelling_id=opt.travel)
+        else:
+            sender = InformedSender(opt.game_size, feat_size,
+                                    opt.embedding_size, opt.hidden_size, opt.vocab_size,
+                                    temp=opt.tau_s)
         receiver = Receiver(opt.game_size, feat_size,
                             opt.embedding_size, opt.vocab_size, reinforce=(opts.mode == 'rf'))
         if opts.mode == 'rf':

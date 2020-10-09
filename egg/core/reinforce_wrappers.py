@@ -212,7 +212,7 @@ class PopSymbolGameReinforce(nn.Module):
         self.sender_entropy_coeff = sender_entropy_coeff
 
         self.give_advice = give_advice
-        self.learn_advice_iters = 10
+        self.learn_advice_iters = 1
         self.s_spec_succ = [[] for _ in range(self.pop)]
         self.r_spec_succ = [[] for _ in range(self.pop)]
         self.s_spec_avg_succ = [0 for _ in range(self.pop)]

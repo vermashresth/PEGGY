@@ -186,6 +186,7 @@ class Trainer:
             if self.should_stop:
                 break
             wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']})
+            wandb.log({'Epoch':epoch, 'Acc':train_rest['acc']}, commit=epoch%self.game.pop_size==0)
         for callback in self.callbacks:
             callback.on_train_end()
 

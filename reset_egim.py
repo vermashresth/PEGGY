@@ -18,7 +18,7 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
-import itertools
+
 import wandb
 
 def cal_batch_ld(t1, t2):
@@ -55,8 +55,11 @@ class ReinforceWrapper(nn.Module):
         self.clear_advices()
 
     def reset_weights(self):
-        for layer in self.agent.children():
-            layer.reset_parameters()
+        def reset(m):
+          if isinstance(m, nn.Embedding) or isinstance(m, nn.Linear):
+            # print(m)
+            m.reset_parameters()
+        self.agent.apply(reset)
 
     def clear_advices(self):
         self.advice_info = []
@@ -105,36 +108,13 @@ class ReinforceDeterministicWrapper(nn.Module):
 
         return out, torch.zeros(1).to(out.device), torch.zeros(1).to(out.device)
 
-
-SEND_REC_REL = 0
-ADVICE_REL = 1
-
-NORMAL_MODE = 0
-ADV_THICK = 1
-ADV_THIN = 2
-ADV_V_THIN = 3
-ADV_BIG_THICK = 1.5
-ADV_BIG_THIN = 2.5
-ADV_BIG_V_THIN = 3.5
-ISLE_MODE = 4
-ISLE_ADV = 4.5
-
-ISLANDS = 3
-POP_IN_ISLE=[10,10,10] # OR 5
-TRAVELLERS = 0
-GAME_MODE = NORMAL_MODE
-CONCEPT_SIZE = 26
-
-
-
 def get_graph(pop, g_type):
-    global ISLANDS, POP_IN_ISLE
     g = {i:[] for i in range(pop)}
-    if g_type == -1: # everyone to everyone including oneself
+    if g_type == 0: # everyone to everyone including oneself
         g = {i:[j for j in range(pop)] for i in range(pop)}
-    elif g_type == 0: # everyone to everyone else, doesnt include oneself
+    elif g_type == 1: # everyone to everyone else, doesnt include oneself
         g = {i:[j for j in range(pop) if j!=i] for i in range(pop)}
-    elif g_type == 1: # thick length wise
+    elif g_type == 2: # thick length wise
         assert pop==10
         g = {0:[1,2],
              1:[0,3],
@@ -146,25 +126,7 @@ def get_graph(pop, g_type):
              7:[5,6,9],
              8:[6,9],
              9:[7,8]}
-    elif g_type == 1.5: # thick length wise
-        assert pop==16
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3,4],
-             3:[1,2,5,6],
-             4:[2,6],
-             5:[3,7],
-             6:[3,7,4,8],
-             7:[5,6,9,10],
-             8:[6,9],
-             9:[7,8,11,12],
-             10:[7,11],
-             11:[10,9,13,14],
-             12:[9,14],
-             13:[11,15],
-             14:[12,11,15],
-             15:[13,14]}
-    elif g_type == 2: # thin length wise
+    elif g_type == 3: # thin length wise
         assert pop==10
         g = {0:[1,2],
              1:[0,3],
@@ -176,105 +138,45 @@ def get_graph(pop, g_type):
              7:[6,9],
              8:[6,9],
              9:[7,8]}
-    elif g_type == 2.5: # big thin length wise
-        assert pop==16
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3],
-             3:[1, 2, 4, 5],
-             4:[3,6],
-             5:[3,6],
-             6:[4,5,7,8],
-             7:[6,9],
-             8:[6,9],
-             9:[7,8],
-             10:[9,12],
-             11:[9,12],
-             12:[10,11,13,14],
-             13:[12,15],
-             14:[12,15],
-             15:[13,14]}
-    elif g_type == 3: # v_thin length wise
-        assert pop==10
-        g = {0:[1],
-             1:[0,2],
-             2:[1,3],
-             3:[2, 4],
-             4:[3,5],
-             5:[4,6],
-             6:[5,7],
-             7:[6,8],
-             8:[7,9],
-             9:[8]}
-    elif g_type == 3.5: # v_thin length wise
-        assert pop==16
-        g = {0:[1],
-             1:[0,2],
-             2:[1,3],
-             3:[2,4],
-             4:[3,5],
-             5:[4,6],
-             6:[5,7],
-             7:[6,8],
-             8:[7,9],
-             9:[8,10],
-             10:[9,11],
-             11:[10,12],
-             12:[11,13],
-             13:[12,14],
-             14:[13,15],
-             15:[14]}
     elif g_type == 4:
-
-        g={i:[] for i in range(pop)}
-        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
-        for isle_id in range(len(POP_IN_ISLE)):
-            pop_till_now=sum(POP_IN_ISLE[:isle_id])
-            isle_pop = POP_IN_ISLE[isle_id]
-            for i in range(isle_pop):
-                for j in range(isle_pop):
-                    g[i+pop_till_now] += [j+pop_till_now]
-        if TRAVELLERS:
-          for i in range(TRAVELLERS):
-            g[i+sum(POP_IN_ISLE)] += list(range(sum(POP_IN_ISLE)))
-    elif g_type==4.5:
-        g={i:[] for i in range(pop)}
-        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
-        for isle_id in range(len(POP_IN_ISLE)):
-            pop_till_now=sum(POP_IN_ISLE[:isle_id])
-            isle_pop = POP_IN_ISLE[isle_id]
-            for i in range(isle_pop):
-                for j in range(isle_pop):
-                    if i!=j:
-                        g[i+pop_till_now] += [j+pop_till_now]
-        for i in range(pop-TRAVELLERS):
-            g[i]+=[t+(pop-TRAVELLERS) for t in range(TRAVELLERS)]
-
+        assert pop==9
+        g = {0:[1,2],
+             1:[0,2],
+             2:[0,1],
+             3:[4,5],
+             4:[3,5],
+             5:[3,4],
+             6:[7,8],
+             7:[8,6],
+             8:[6,7]}
     return g
 
+SEND_REC_REL = 0
+ADVICE_REL = 1
+
+NORMAL_MODE = 0
+ADV_THICK = 1
+ADV_THIN = 2
+COMM_CLUS_333 = 3
 
 def get_allowed_partners(index, req_type, game_mode, pop):
     # req_type can be 0: sender-receiver index, 1: advicee index
     # game_mode can be 0: normal, 1: advice restricted thick, 2: advice restricted thin,  3: advice as well as game pairing restricted 3-3-3
     # for game mode 1, game configurations can be
     if req_type==SEND_REC_REL: # sender recievr asked
-        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN,ADV_V_THIN, ADV_BIG_THICK, ADV_BIG_THIN, ADV_BIG_V_THIN]:
-            g = get_graph(pop, -1)
-        elif game_mode==ISLE_MODE:
+        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN]:
+            g = get_graph(pop, 0)
+        elif game_mode==COMM_333:
             g = get_graph(pop, 4)
     elif req_type==ADVICE_REL:
-        # if game_mode==NORMAL_MODE: #normal mode
-        #     g = get_graph(pop, 1)
-        # elif game_mode==ADV_THICK:
-        #     g = get_graph(pop, 2)
-        # elif game_mode==ADV_THIN:
-        #     g = get_graph(pop, 3)
-        # elif game_mode==COMM_333:
-        #     g = get_graph(pop, 4)
-        if game_mode!=ISLE_MODE:
-            g = get_graph(pop, game_mode)
-        else:
-            g = get_graph(pop, ISLE_ADV)
+        if game_mode==NORMAL_MODE: #normal mode
+            g = get_graph(pop, 1)
+        elif game_mode==ADV_THICK:
+            g = get_graph(pop, 2)
+        elif game_mode==ADV_THIN:
+            g = get_graph(pop, 3)
+        elif game_mode==COMM_333:
+            g = get_graph(pop, 4)
 
     return g[index]
 
@@ -320,7 +222,6 @@ class PopSymbolGameReinforce(nn.Module):
             self.r_baseline = baseline_type()
         else:
             self.baseline = baseline_type()
-
         ds = self.sender_list[0].agent
         dr = self.receiver_list[0].agent
 
@@ -329,18 +230,15 @@ class PopSymbolGameReinforce(nn.Module):
                                 ds.temp]
         self.receiver_params = [dr.game_size, dr.feat_size,
                             dr.embedding_size, dr.vocab_size, dr.reinforce]
-        self.concept_comb = list(itertools.product(list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE))))
-        self.speaker_utterances = [ [ [ [] for k in self.concept_comb] for j in range(ISLANDS) ] for i in range(self.pop)]
         self.ds = ds
         self.dr = dr
         self.remake_optimizer_pending=False
+
         self.time_keeper(reset_all=True)
 
 
     def time_keeper(self, s_index=None, r_index=None, reset_all=False):
-        reset_max = int(800*(self.pop-1)/self.pop)
-        p=0.3
-        to_reset = np.random.choice([i for i in range(self.pop)], int(p*self.pop), replace=False)
+        reset_max = int(600*(self.pop-1)/self.pop)
         if reset_all:
             if self.staggered_reset:
                 self.sender_times = [np.random.choice(reset_max) for _ in range(self.pop)]
@@ -350,43 +248,58 @@ class PopSymbolGameReinforce(nn.Module):
                 self.sender_times = [0 for _ in range(self.pop)]
 
         else:
-            # self.sender_times[s_index]+=1
-            # if self.sender_times[s_index]>reset_max:
-            #     self.sender_list[s_index].reset_weights()
-            #     self.sender_times[s_index] = np.random.choice(reset_max)
-            #
-            #     print("Reset done for {}th speaker")
-            self.receiver_times[r_index]+=1
-            # print(len(self.sender_list), len(self.receiver_list))
-            if self.receiver_times[r_index]>reset_max:
-                for r_index in range(self.pop):
-                    if r_index in to_reset:
-                        self.receiver_list[r_index] = ReinforceWrapper(self.dr.__class__(*self.receiver_params)).cuda()
-                        # print(len(self.sender_list), r_index)
-                        self.sender_list[r_index] = ReinforceWrapper(self.ds.__class__(*self.sender_params)).cuda()
-                    self.receiver_times[r_index] = 0
-                    self.sender_times[r_index] = 0
-                if self.staggered_reset:
-                    self.receiver_times[r_index] = np.random.choice(reset_max)
-                else:
-                    self.receiver_times[r_index] = 0
+            self.sender_times[s_index]+=1
+            choose = np.random.choice(self.pop, int(0.7*self.pop), False)
+            if self.sender_times[s_index]>reset_max:
+                for id in range(self.pop):
+                  p = np.random.random()
+                  if id not in choose:
+                    self.sender_times[id] = 0
+                    continue
+                  self.sender_list[id] = ReinforceWrapper(self.ds.__class__(*self.sender_params)).cuda()
+                  # print(self.receiver_list[id].agent.lin1.weight.data[:10])
+                  # print()
+                  # print("afeter\n")
+                  # print(self.receiver_list[r_index].agent.lin2.weight)
+                  self.sender_times[id] = 0
+                  # self.sender_list[0].reset_weights()
 
-                print("Reset done for {}th reciever and sender".format(r_index))
+                  print("Reset done for {}th snder".format(id))
+
                 self.receiver_list = nn.ModuleList(self.receiver_list)
-                self.sender_list = nn.ModuleList(self.sender_list)
+                self.remake_optimizer_pending=True
+            self.receiver_times[r_index]+=1
+            if self.receiver_times[r_index]>reset_max:
+                for id in range(self.pop):
+                  # print("before\n")
+                  # print(self.receiver_list[r_index].agent.lin2.weight)
+
+                  # self.receiver_list[id].reset_weights()
+                  # print(self.receiver_list[id].agent.lin1.weight.data[:10])
+                  p = np.random.random()
+                  if id not in choose:
+                    self.receiver_times[id] = 0
+                    continue
+                  self.receiver_list[id] = ReinforceWrapper(self.dr.__class__(*self.receiver_params)).cuda()
+                  # print(self.receiver_list[id].agent.lin1.weight.data[:10])
+                  # print()
+                  # print("afeter\n")
+                  # print(self.receiver_list[r_index].agent.lin2.weight)
+                  self.receiver_times[id] = 0
+                  # self.sender_list[0].reset_weights()
+
+                  print("Reset done for {}th reciever".format(id))
+
+                self.receiver_list = nn.ModuleList(self.receiver_list)
                 self.remake_optimizer_pending=True
 
-
     def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
-        if self.reset_regime:
-            s_index = 0
-        else:
-            s_index = np.random.choice(range(self.pop))
+        s_index = np.random.choice(range(self.pop))
 
-        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=GAME_MODE)
+        game_mode = NORMAL_MODE
+        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=game_mode)
         r_index = np.random.choice(partners)
-
-
+        # print(s_index, r_index)
 
 
         if self.reset_regime and self.training:
@@ -395,35 +308,21 @@ class PopSymbolGameReinforce(nn.Module):
         self.sender = self.sender_list[s_index]
         self.receiver = self.receiver_list[r_index]
 
-
-
-
-        isle_id = [0,0,0]
-        for isle, _p in enumerate(POP_IN_ISLE):
-            if r_index<sum(POP_IN_ISLE[:isle+1]):
-                isle_id [isle] = 1
-                break
-        if self.sender.agent.is_travelling:
-            i_travel=True
-            message, sender_log_prob, sender_entropy = self.sender(sender_input, isle_id=isle_id)
-        else:
-            i_travel=False
-            message, sender_log_prob, sender_entropy = self.sender(sender_input)
-
+        message, sender_log_prob, sender_entropy = self.sender(sender_input)
         original_message = message.clone()
         receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
 
         loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-
+        if self.training:
+          # print("mean loss this batch", loss.mean().item())
+          wandb.log({'fine acc':-loss.mean().item()}, commit=False)
+        # print(loss[:10])
         spec = np.all(np.array(concept_batch)==[0,1,2], 1)
-        if GAME_MODE==ISLE_MODE:
-            for b, concept in enumerate(concept_batch):
-                self.speaker_utterances[s_index][isle][self.concept_comb.index(tuple(concept))].append(message[b].item())
         if np.any(spec):
             self.s_spec_succ[s_index].extend(loss[spec].cpu().numpy())
             self.r_spec_succ[r_index].extend(loss[spec].cpu().numpy())
             self.s_spec_avg_succ[s_index] = -np.mean(self.s_spec_succ[s_index][-50:])
-            self.r_spec_avg_succ[r_index] = -np.mean(self.r_spec_succ[r_index][-50:])
+            self.r_spec_avg_succ[s_index] = -np.mean(self.r_spec_succ[r_index][-50:])
         sender_loss = loss.detach().clone()
         rec_loss = loss.detach().clone()
 
@@ -431,13 +330,8 @@ class PopSymbolGameReinforce(nn.Module):
             c_loss = loss.detach().clone()
             successful_episodes = c_loss==-1
             mask = successful_episodes
-            if self.reset_regime:
-                partners = []
-            else:
-                partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
-            if i_travel:
-                start = sum(POP_IN_ISLE[:isle])
-                partners = [i+start for i in range(POP_IN_ISLE[isle])]
+
+            partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
             for idx in partners:
 
                 if mask.sum().item()<1:
@@ -449,17 +343,14 @@ class PopSymbolGameReinforce(nn.Module):
                 sen.have_advice_info = True
 
                 for i in range(self.learn_advice_iters):
-                  if idx>=self.pop-TRAVELLERS: # advising a traveller
-                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone(), isle_id=isle_id)
-                  else:
-                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
+                  n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
                   message = torch.cat([message, n_message])
                   sender_log_prob = torch.cat([sender_log_prob, n_log_prob_s])
                   sender_entropy = torch.cat([sender_entropy, n_entropy_s])
                   sender_loss = torch.cat([sender_loss, c_loss[mask]])
                 sen.have_advice_info = False
 
-            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
+            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=game_mode)
             for idx in partners:
 
                 if mask.sum().item()<1:
@@ -507,16 +398,13 @@ class PopSymbolGameReinforce(nn.Module):
         rest_info['loss'] = loss.mean().item()
         rest_info['sender_entropy'] = sender_entropy.mean()
         rest_info['receiver_entropy'] = receiver_entropy.mean()
+        wandb.log({'sender entropy':sender_entropy.mean()})
         # print(self.r_spec_avg_succ, [len(self.r_spec_succ[i]) for i in range(self.pop)])
         # print(self.s_spec_avg_succ, [len(self.s_spec_succ[i]) for i in range(self.pop)])
 
-        wandb.log({'Specialization Sender': max(self.s_spec_avg_succ) - min(self.s_spec_avg_succ)}, commit=False)
-        wandb.log({'Specialization Receiver': max(self.r_spec_avg_succ) - min(self.r_spec_avg_succ)}, commit=False)
-        if self.pop==5:
-            for id, suc in enumerate(np.sort(self.s_spec_avg_succ)):
-                wandb.log({'Specialization Rank-{} Sender(5)'.format(id): suc}, commit=False)
-            for id, suc in enumerate(np.sort(self.r_spec_avg_succ)):
-                wandb.log({'Specialization Rank-{} Receiver(5)'.format(id): suc}, commit=False)
+        # wandb.log({'Specialization Sender': max(self.s_spec_avg_succ) - min(self.s_spec_avg_succ)}, commit=False)
+        # wandb.log({'Specialization Receiver': max(self.r_spec_avg_succ) - min(self.r_spec_avg_succ)}, commit=False)
+
         return full_loss, rest_info
 
 class SymbolGameReinforce(nn.Module):

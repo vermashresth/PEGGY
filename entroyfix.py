@@ -18,7 +18,6 @@ from .util import find_lengths
 from .baselines import MeanBaseline, NNBaseline
 from Levenshtein import distance as ld
 
-import itertools
 import wandb
 
 def cal_batch_ld(t1, t2):
@@ -52,15 +51,6 @@ class ReinforceWrapper(nn.Module):
     def __init__(self, agent):
         super(ReinforceWrapper, self).__init__()
         self.agent = agent
-        self.clear_advices()
-
-    def reset_weights(self):
-        for layer in self.agent.children():
-            layer.reset_parameters()
-
-    def clear_advices(self):
-        self.advice_info = []
-        self.have_advice_info = False
 
     def forward(self, *args, **kwargs):
         logits = self.agent(*args, **kwargs)
@@ -72,11 +62,7 @@ class ReinforceWrapper(nn.Module):
             sample = distr.sample()
         else:
             sample = logits.argmax(dim=1)
-        if self.have_advice_info:
-            output = self.advice_info[-1]
-            log_prob = distr.log_prob(output)
-        else:
-            log_prob = distr.log_prob(sample)
+        log_prob = distr.log_prob(sample)
 
         return sample, log_prob, entropy
 
@@ -105,419 +91,6 @@ class ReinforceDeterministicWrapper(nn.Module):
 
         return out, torch.zeros(1).to(out.device), torch.zeros(1).to(out.device)
 
-
-SEND_REC_REL = 0
-ADVICE_REL = 1
-
-NORMAL_MODE = 0
-ADV_THICK = 1
-ADV_THIN = 2
-ADV_V_THIN = 3
-ADV_BIG_THICK = 1.5
-ADV_BIG_THIN = 2.5
-ADV_BIG_V_THIN = 3.5
-ISLE_MODE = 4
-ISLE_ADV = 4.5
-
-ISLANDS = 3
-POP_IN_ISLE=[10,10,10] # OR 5
-TRAVELLERS = 0
-GAME_MODE = NORMAL_MODE
-CONCEPT_SIZE = 26
-
-
-
-def get_graph(pop, g_type):
-    global ISLANDS, POP_IN_ISLE
-    g = {i:[] for i in range(pop)}
-    if g_type == -1: # everyone to everyone including oneself
-        g = {i:[j for j in range(pop)] for i in range(pop)}
-    elif g_type == 0: # everyone to everyone else, doesnt include oneself
-        g = {i:[j for j in range(pop) if j!=i] for i in range(pop)}
-    elif g_type == 1: # thick length wise
-        assert pop==10
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3,4],
-             3:[1,2,5,6],
-             4:[2,6],
-             5:[3,7],
-             6:[3,7,4,8],
-             7:[5,6,9],
-             8:[6,9],
-             9:[7,8]}
-    elif g_type == 1.5: # thick length wise
-        assert pop==16
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3,4],
-             3:[1,2,5,6],
-             4:[2,6],
-             5:[3,7],
-             6:[3,7,4,8],
-             7:[5,6,9,10],
-             8:[6,9],
-             9:[7,8,11,12],
-             10:[7,11],
-             11:[10,9,13,14],
-             12:[9,14],
-             13:[11,15],
-             14:[12,11,15],
-             15:[13,14]}
-    elif g_type == 2: # thin length wise
-        assert pop==10
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3],
-             3:[1, 2, 4, 5],
-             4:[3,6],
-             5:[3,6],
-             6:[4,5,7,8],
-             7:[6,9],
-             8:[6,9],
-             9:[7,8]}
-    elif g_type == 2.5: # big thin length wise
-        assert pop==16
-        g = {0:[1,2],
-             1:[0,3],
-             2:[0,3],
-             3:[1, 2, 4, 5],
-             4:[3,6],
-             5:[3,6],
-             6:[4,5,7,8],
-             7:[6,9],
-             8:[6,9],
-             9:[7,8],
-             10:[9,12],
-             11:[9,12],
-             12:[10,11,13,14],
-             13:[12,15],
-             14:[12,15],
-             15:[13,14]}
-    elif g_type == 3: # v_thin length wise
-        assert pop==10
-        g = {0:[1],
-             1:[0,2],
-             2:[1,3],
-             3:[2, 4],
-             4:[3,5],
-             5:[4,6],
-             6:[5,7],
-             7:[6,8],
-             8:[7,9],
-             9:[8]}
-    elif g_type == 3.5: # v_thin length wise
-        assert pop==16
-        g = {0:[1],
-             1:[0,2],
-             2:[1,3],
-             3:[2,4],
-             4:[3,5],
-             5:[4,6],
-             6:[5,7],
-             7:[6,8],
-             8:[7,9],
-             9:[8,10],
-             10:[9,11],
-             11:[10,12],
-             12:[11,13],
-             13:[12,14],
-             14:[13,15],
-             15:[14]}
-    elif g_type == 4:
-
-        g={i:[] for i in range(pop)}
-        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
-        for isle_id in range(len(POP_IN_ISLE)):
-            pop_till_now=sum(POP_IN_ISLE[:isle_id])
-            isle_pop = POP_IN_ISLE[isle_id]
-            for i in range(isle_pop):
-                for j in range(isle_pop):
-                    g[i+pop_till_now] += [j+pop_till_now]
-        if TRAVELLERS:
-          for i in range(TRAVELLERS):
-            g[i+sum(POP_IN_ISLE)] += list(range(sum(POP_IN_ISLE)))
-    elif g_type==4.5:
-        g={i:[] for i in range(pop)}
-        assert pop==sum(POP_IN_ISLE)+TRAVELLERS, 'population in islands not matching total pop'
-        for isle_id in range(len(POP_IN_ISLE)):
-            pop_till_now=sum(POP_IN_ISLE[:isle_id])
-            isle_pop = POP_IN_ISLE[isle_id]
-            for i in range(isle_pop):
-                for j in range(isle_pop):
-                    if i!=j:
-                        g[i+pop_till_now] += [j+pop_till_now]
-        for i in range(pop-TRAVELLERS):
-            g[i]+=[t+(pop-TRAVELLERS) for t in range(TRAVELLERS)]
-
-    return g
-
-
-def get_allowed_partners(index, req_type, game_mode, pop):
-    # req_type can be 0: sender-receiver index, 1: advicee index
-    # game_mode can be 0: normal, 1: advice restricted thick, 2: advice restricted thin,  3: advice as well as game pairing restricted 3-3-3
-    # for game mode 1, game configurations can be
-    if req_type==SEND_REC_REL: # sender recievr asked
-        if game_mode in [NORMAL_MODE, ADV_THICK, ADV_THIN,ADV_V_THIN, ADV_BIG_THICK, ADV_BIG_THIN, ADV_BIG_V_THIN]:
-            g = get_graph(pop, -1)
-        elif game_mode==ISLE_MODE:
-            g = get_graph(pop, 4)
-    elif req_type==ADVICE_REL:
-        # if game_mode==NORMAL_MODE: #normal mode
-        #     g = get_graph(pop, 1)
-        # elif game_mode==ADV_THICK:
-        #     g = get_graph(pop, 2)
-        # elif game_mode==ADV_THIN:
-        #     g = get_graph(pop, 3)
-        # elif game_mode==COMM_333:
-        #     g = get_graph(pop, 4)
-        if game_mode!=ISLE_MODE:
-            g = get_graph(pop, game_mode)
-        else:
-            g = get_graph(pop, ISLE_ADV)
-
-    return g[index]
-
-class PopSymbolGameReinforce(nn.Module):
-    """
-    A single-symbol Sender/Receiver game implemented with Reinforce.
-    """
-    def __init__(self, sender_list, receiver_list, pop, give_advice, loss, sender_entropy_coeff=0.0, receiver_entropy_coeff=0.0, baseline_type=MeanBaseline):
-        """
-        :param sender: Sender agent. On forward, returns a tuple of (message, log-prob of the message, entropy).
-        :param receiver: Receiver agent. On forward, accepts a message and the dedicated receiver input. Returns
-            a tuple of (output, log-probs, entropy).
-        :param loss: The loss function that accepts:
-            sender_input: input of Sender
-            message: the is sent by Sender
-            receiver_input: input of Receiver from the dataset
-            receiver_output: output of Receiver
-            labels: labels assigned to Sender's input data
-          and outputs the end-to-end loss. Can be non-differentiable; if it is differentiable, this will be leveraged
-        :param sender_entropy_coeff: The entropy regularization coefficient for Sender
-        :param receiver_entropy_coeff: The entropy regularizatino coefficient for Receiver
-        :param baseline_type: Callable, returns a baseline instance (eg a class specializing core.baselines.Baseline)
-        """
-        super(PopSymbolGameReinforce, self).__init__()
-        self.reset_regime = True
-        self.staggered_reset = False
-        self.sender_list = nn.ModuleList(sender_list)
-        self.receiver_list = nn.ModuleList(receiver_list)
-        self.pop = pop
-        self.loss = loss
-
-        self.receiver_entropy_coeff = receiver_entropy_coeff
-        self.sender_entropy_coeff = sender_entropy_coeff
-
-        self.give_advice = give_advice
-        self.learn_advice_iters = 1
-        self.s_spec_succ = [[] for _ in range(self.pop)]
-        self.r_spec_succ = [[] for _ in range(self.pop)]
-        self.s_spec_avg_succ = [0 for _ in range(self.pop)]
-        self.r_spec_avg_succ = [0 for _ in range(self.pop)]
-        if self.give_advice:
-            self.s_baseline = baseline_type()
-            self.r_baseline = baseline_type()
-        else:
-            self.baseline = baseline_type()
-
-        ds = self.sender_list[0].agent
-        dr = self.receiver_list[0].agent
-
-        self.sender_params = [ds.game_size, ds.feat_size,
-                                ds.embedding_size, ds.hidden_size, ds.vocab_size,
-                                ds.temp]
-        self.receiver_params = [dr.game_size, dr.feat_size,
-                            dr.embedding_size, dr.vocab_size, dr.reinforce]
-        self.concept_comb = list(itertools.product(list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE)), list(range(CONCEPT_SIZE))))
-        self.speaker_utterances = [ [ [ [] for k in self.concept_comb] for j in range(ISLANDS) ] for i in range(self.pop)]
-        self.ds = ds
-        self.dr = dr
-        self.remake_optimizer_pending=False
-        self.time_keeper(reset_all=True)
-
-
-    def time_keeper(self, s_index=None, r_index=None, reset_all=False):
-        reset_max = int(800*(self.pop-1)/self.pop)
-        p=0.3
-        to_reset = np.random.choice([i for i in range(self.pop)], int(p*self.pop), replace=False)
-        if reset_all:
-            if self.staggered_reset:
-                self.sender_times = [np.random.choice(reset_max) for _ in range(self.pop)]
-                self.receiver_times = [np.random.choice(reset_max) for _ in range(self.pop)]
-            else:
-                self.receiver_times = [0 for _ in range(self.pop)]
-                self.sender_times = [0 for _ in range(self.pop)]
-
-        else:
-            # self.sender_times[s_index]+=1
-            # if self.sender_times[s_index]>reset_max:
-            #     self.sender_list[s_index].reset_weights()
-            #     self.sender_times[s_index] = np.random.choice(reset_max)
-            #
-            #     print("Reset done for {}th speaker")
-            self.receiver_times[r_index]+=1
-            # print(len(self.sender_list), len(self.receiver_list))
-            if self.receiver_times[r_index]>reset_max:
-                for r_index in range(self.pop):
-                    if r_index in to_reset:
-                        self.receiver_list[r_index] = ReinforceWrapper(self.dr.__class__(*self.receiver_params)).cuda()
-                        # print(len(self.sender_list), r_index)
-                        self.sender_list[r_index] = ReinforceWrapper(self.ds.__class__(*self.sender_params)).cuda()
-                    self.receiver_times[r_index] = 0
-                    self.sender_times[r_index] = 0
-                if self.staggered_reset:
-                    self.receiver_times[r_index] = np.random.choice(reset_max)
-                else:
-                    self.receiver_times[r_index] = 0
-
-                print("Reset done for {}th reciever and sender".format(r_index))
-                self.receiver_list = nn.ModuleList(self.receiver_list)
-                self.sender_list = nn.ModuleList(self.sender_list)
-                self.remake_optimizer_pending=True
-
-
-    def forward(self, sender_input, labels, receiver_input=None, concept_batch=None):
-        if self.reset_regime:
-            s_index = 0
-        else:
-            s_index = np.random.choice(range(self.pop))
-
-        partners = get_allowed_partners(index=s_index, req_type=SEND_REC_REL, pop=self.pop, game_mode=GAME_MODE)
-        r_index = np.random.choice(partners)
-
-
-
-
-        if self.reset_regime and self.training:
-            self.time_keeper(s_index, r_index)
-
-        self.sender = self.sender_list[s_index]
-        self.receiver = self.receiver_list[r_index]
-
-
-
-
-        isle_id = [0,0,0]
-        for isle, _p in enumerate(POP_IN_ISLE):
-            if r_index<sum(POP_IN_ISLE[:isle+1]):
-                isle_id [isle] = 1
-                break
-        if self.sender.agent.is_travelling:
-            i_travel=True
-            message, sender_log_prob, sender_entropy = self.sender(sender_input, isle_id=isle_id)
-        else:
-            i_travel=False
-            message, sender_log_prob, sender_entropy = self.sender(sender_input)
-
-        original_message = message.clone()
-        receiver_output, receiver_log_prob, receiver_entropy = self.receiver(message, receiver_input)
-
-        loss, rest_info = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-
-        spec = np.all(np.array(concept_batch)==[0,1,2], 1)
-        if GAME_MODE==ISLE_MODE:
-            for b, concept in enumerate(concept_batch):
-                self.speaker_utterances[s_index][isle][self.concept_comb.index(tuple(concept))].append(message[b].item())
-        if np.any(spec):
-            self.s_spec_succ[s_index].extend(loss[spec].cpu().numpy())
-            self.r_spec_succ[r_index].extend(loss[spec].cpu().numpy())
-            self.s_spec_avg_succ[s_index] = -np.mean(self.s_spec_succ[s_index][-50:])
-            self.r_spec_avg_succ[r_index] = -np.mean(self.r_spec_succ[r_index][-50:])
-        sender_loss = loss.detach().clone()
-        rec_loss = loss.detach().clone()
-
-        if self.give_advice:
-            c_loss = loss.detach().clone()
-            successful_episodes = c_loss==-1
-            mask = successful_episodes
-            if self.reset_regime:
-                partners = []
-            else:
-                partners = get_allowed_partners(index=s_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
-            if i_travel:
-                start = sum(POP_IN_ISLE[:isle])
-                partners = [i+start for i in range(POP_IN_ISLE[isle])]
-            for idx in partners:
-
-                if mask.sum().item()<1:
-                    break
-
-                sen = self.sender_list[idx]
-
-                sen.advice_info.append(original_message[mask])
-                sen.have_advice_info = True
-
-                for i in range(self.learn_advice_iters):
-                  if idx>=self.pop-TRAVELLERS: # advising a traveller
-                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone(), isle_id=isle_id)
-                  else:
-                    n_message, n_log_prob_s, n_entropy_s = sen(sender_input[:, mask, :].detach().clone())
-                  message = torch.cat([message, n_message])
-                  sender_log_prob = torch.cat([sender_log_prob, n_log_prob_s])
-                  sender_entropy = torch.cat([sender_entropy, n_entropy_s])
-                  sender_loss = torch.cat([sender_loss, c_loss[mask]])
-                sen.have_advice_info = False
-
-            partners = get_allowed_partners(index=r_index, req_type=ADVICE_REL, pop=self.pop, game_mode=GAME_MODE)
-            for idx in partners:
-
-                if mask.sum().item()<1:
-                    break
-
-                rec = self.receiver_list[idx]
-
-                rec.advice_info.append(receiver_output[mask])
-                rec.have_advice_info = True
-
-                for i in range(self.learn_advice_iters):
-                  n_receiver_output, n_log_prob_r, n_entropy_r = rec(original_message[mask], receiver_input[:, mask, :])
-                  receiver_log_prob = torch.cat([receiver_log_prob, n_log_prob_r])
-                  receiver_entropy = torch.cat([receiver_entropy, n_entropy_r])
-                  rec_loss = torch.cat([rec_loss, c_loss[mask]])
-                rec.have_advice_info = False
-
-        self.sender.clear_advices()
-        self.receiver.clear_advices()
-        if self.give_advice:
-            policy_loss_s = ((sender_loss.detach() - self.s_baseline.predict(sender_loss.detach())) * (sender_log_prob)).mean()
-            policy_loss_r = ((rec_loss.detach() - self.r_baseline.predict(rec_loss.detach())) * (receiver_log_prob)).mean()
-            policy_loss = policy_loss_r + policy_loss_s
-        else:
-            policy_loss = ((loss.detach() - self.baseline.predict(loss.detach())) * (sender_log_prob + receiver_log_prob)).mean()
-        entropy_loss = -(sender_entropy.mean() * self.sender_entropy_coeff + receiver_entropy.mean() * self.receiver_entropy_coeff)
-
-        if self.training:
-            if self.give_advice:
-                self.s_baseline.update(sender_loss.detach())
-                self.r_baseline.update(rec_loss.detach())
-            else:
-                self.baseline.update(loss.detach())
-
-        full_loss = policy_loss + entropy_loss + loss.mean()
-
-        for k, v in rest_info.items():
-            if hasattr(v, 'mean'):
-                rest_info[k] = v.mean().item()
-        if self.give_advice:
-            rest_info['baseline'] = self.s_baseline.predict(sender_loss.detach()).mean()
-        else:
-            rest_info['baseline'] = self.baseline.predict(loss.detach()).mean()
-
-        rest_info['loss'] = loss.mean().item()
-        rest_info['sender_entropy'] = sender_entropy.mean()
-        rest_info['receiver_entropy'] = receiver_entropy.mean()
-        # print(self.r_spec_avg_succ, [len(self.r_spec_succ[i]) for i in range(self.pop)])
-        # print(self.s_spec_avg_succ, [len(self.s_spec_succ[i]) for i in range(self.pop)])
-
-        wandb.log({'Specialization Sender': max(self.s_spec_avg_succ) - min(self.s_spec_avg_succ)}, commit=False)
-        wandb.log({'Specialization Receiver': max(self.r_spec_avg_succ) - min(self.r_spec_avg_succ)}, commit=False)
-        if self.pop==5:
-            for id, suc in enumerate(np.sort(self.s_spec_avg_succ)):
-                wandb.log({'Specialization Rank-{} Sender(5)'.format(id): suc}, commit=False)
-            for id, suc in enumerate(np.sort(self.r_spec_avg_succ)):
-                wandb.log({'Specialization Rank-{} Receiver(5)'.format(id): suc}, commit=False)
-        return full_loss, rest_info
 
 class SymbolGameReinforce(nn.Module):
     """
@@ -620,7 +193,7 @@ class MyRnnSenderReinforce(nn.Module):
         self.num_layers = num_layers
         self.cells = None
         self.multi_head = multi_head
-        self.unc_threshold = 1
+        self.unc_threshold = 2
         self.advice_info = None
         cell = cell.lower()
         cell_types = {'rnn': nn.RNNCell, 'gru': nn.GRUCell, 'lstm': nn.LSTMCell}
@@ -708,7 +281,6 @@ class MyRnnSenderReinforce(nn.Module):
             logits_list.append(logits)
             entropy_list.append(entropy)
         final_id = np.random.choice(range(len(agent_outs)))
-        # final_id = 0
         # print(sequence_list[0], sequence_list[1])
         if self.multi_head:
             self.unc_batch = cal_batch_ld(sequence_list[0], sequence_list[1])
@@ -722,31 +294,30 @@ class MyRnnSenderReinforce(nn.Module):
                     wandb.log({'Sender Unc': np.mean(self.unc_batch)}, commit=False)
                     if self.advice_info is None:
                         output = self.manager.get_advice(x, self.id)
-                        do_ask_advice = self.unc_batch > self.unc_threshold ## np array
+                        do_ask_advice = self.unc_batch > self.unc_threshold
+
                         self.advice_info = [output, do_ask_advice]
                     else:
                         output, do_ask_advice = self.advice_info
                         output = list(output)
+                        # print(mask.dtype)
+                        # print(output[1].dtype)
+                        # print("hello")
+                        # print(output[1][mask])
                         output[1] = output[1][mask]
                         output[0] = output[0][mask]
                         output[2] = output[2][mask]
                         do_ask_advice = do_ask_advice[mask]
-                    adviced_seq = torch.tensor(output[1]).cuda() # batch of seq len , 32x5
+                    adviced_seq = torch.tensor(output[1]) # batch of seq len , 32x5
                     unc_of_adviced = torch.Tensor(output[0])
                     do_give_advice = output[2]
-                    # my_step_logits = big_step_logits[final_id]
-                    c=0
-                    for idx, flag in enumerate(do_ask_advice):
+                    step_distr = distributions[final_id]
+                    for step in range(self.max_len):
+                        step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
+                        for idx, flag in enumerate(do_ask_advice):
                             if flag and do_give_advice[idx]:
-                              c+=1
-                              for step in range(self.max_len):
-                                # step_logits_for_adviced = step_distr[step].log_prob(adviced_seq[:, step].cuda()) # batch size
-
-                                adviced_ac = adviced_seq[idx, step]
-                                logits_at_step = distributions[final_id][step].log_prob(adviced_ac)[idx]
-                                logits_list[final_id][idx][step] = logits_at_step
-                                sequence_list[final_id][idx][step] = adviced_ac
-                    # print(c, " adv learnt")
+                                logits_list[final_id][idx] = step_logits_for_adviced[idx]
+                                sequence_list[final_id][idx] = adviced_seq[:, step][idx]
                     return sequence_list[final_id], logits_list[final_id], entropy_list[final_id]
                 else:
                     ## Giving advice
@@ -876,7 +447,7 @@ class RnnReceiverReinforce(nn.Module):
         super(RnnReceiverReinforce, self).__init__()
         self.agent = agent
         self.encoder = RnnEncoder(vocab_size, embed_dim, hidden_size, cell, num_layers)
-        self.unc_threshold = 0.1
+        self.unc_threshold = 0.4
         self.multi_head = True
         self.advice_mode(False)
         self.advice_info = None
@@ -909,6 +480,7 @@ class RnnReceiverReinforce(nn.Module):
                 else:
                     output, do_ask_advice = self.advice_info
                     output = list(output)
+
                     output[1] = output[1][mask]
                     output[0] = output[0][mask]
                     output[2] = output[2][mask]
@@ -916,16 +488,13 @@ class RnnReceiverReinforce(nn.Module):
                 adviced_action = output[1] # batch of seq len , 32x5
                 unc_of_adviced = output[0]
                 do_give_advice = output[2]
-                c=0
                 for idx, flag in enumerate(do_ask_advice):
                     if flag and do_give_advice[idx]:
-                        c+=1
                         # ac = adviced_action[idx].cpu().numpy()
                         # bs = adviced_action.size(0)
                         # bs_act = torch.Tensor(np.repeat(ac, bs)).type(torch.LongTensor).cuda()
                         logits[idx] = log_probs[idx][adviced_action[idx]]
                         sample[idx] = adviced_action[idx]
-                # print(c, " rec adv taken")
                 return sample, logits, entropy
             else:
                 return self.unc_batch, sample, logits, entropy
@@ -1194,7 +763,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         self.baselines = defaultdict(baseline_type)
         self.s_advice_manager = AdviceManager(sender_list)
         self.r_advice_manager = RecAdviceManager(receiver_list)
-        self.learn_advice_iters = 0
+        self.learn_advice_iters = 5
         for sender in self.sender_list:
             sender.set_manager(self.s_advice_manager)
         for receiver in self.receiver_list:
@@ -1210,40 +779,25 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         normal = self.sender.multi_head!=2
 
         message, log_prob_s, entropy_s = self.sender(sender_input)
-        original_message = message.clone()
+        orig_message = message.clone()
         message_lengths = find_lengths(message)
         receiver_output, log_prob_r, entropy_r = self.receiver(message, receiver_input, message_lengths)
-        p = np.random.random()
 
         loss, rest = self.loss(sender_input, message, receiver_input, receiver_output, labels)
-
-        if p<0.1:
-          print("Messages", message[:3])
-          print("pointing", receiver_output[:10])
-          print("acc",-loss[:10] )
 
         if not normal:
           s_loss = loss.detach().clone()
           tot_loss = loss.detach().clone()
           successful_episodes = s_loss==-1
-          faliure_episodes = s_loss!=-1
           do_ask_advice = (torch.Tensor(self.sender.advice_info[1])==True).cuda()
           do_give_advice = (torch.Tensor(self.sender.advice_info[0][2])==True).cuda()
-          learnt_advices = do_ask_advice * do_give_advice
+          learnt_advices = do_ask_advice*do_give_advice
           mask = learnt_advices*successful_episodes
-
-          anti_mask = ~learnt_advices
-          log_prob_s = log_prob_s[anti_mask]
-          entropy_s = entropy_s[anti_mask]
-          tot_loss = tot_loss[anti_mask]
-          message = message[anti_mask]
-
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"send learnt & succ":mask.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum().item()}, commit = False)
-          if p<0.1:
-            print(mask.sum().item(), anti_mask.sum().item())
-            print("send learnt & succ:",mask.sum().item(), "send learnt",learnt_advices.sum().item(), ", send asked:", do_ask_advice.sum().item(), ", send recieved:", do_give_advice.sum().item())
+          wandb.log({"send learnt & succ":mask.sum().item(), ", sender learnt":learnt_advices.sum().item(), "send asked": do_ask_advice.sum().item(), "send recieved": do_give_advice.sum().item()}, commit = False)
+
+          print("send learnt & succ:",mask.sum().item(), ", sender learnt:", learnt_advices.sum().item(), ", send asked:", do_ask_advice.sum().item(), ", send recieved:", do_give_advice.sum().item())
           for i in range(self.learn_advice_iters):
               if mask.sum().item()<1:
                 continue
@@ -1252,44 +806,37 @@ class PopSenderReceiverRnnReinforce(nn.Module):
               f_loss = s_loss[mask]
               message = torch.cat([message, f_message])
               log_prob_s = torch.cat([log_prob_s, f_log_prob_s])
-              entropy_s = torch.cat([entropy_s, f_entropy_s])
+              # entropy_s = torch.cat([entropy_s, f_entropy_s])
               tot_loss = torch.cat([tot_loss, f_loss])
 
         if not normal:
           r_loss = loss.detach().clone()
           tot_r_loss = loss.detach().clone()
           successful_episodes = r_loss==-1
-          faliure_episodes = r_loss!=-1
           do_ask_advice = (torch.Tensor(self.receiver.advice_info[1])==True).cuda()
           do_give_advice = (torch.Tensor(self.receiver.advice_info[0][2])==True).cuda()
           learnt_advices = do_ask_advice*do_give_advice
           mask = learnt_advices*successful_episodes
-
-          anti_mask = ~learnt_advices
-          log_prob_r = log_prob_r[anti_mask]
-          entropy_r = entropy_r[anti_mask]
-          tot_r_loss = tot_r_loss[anti_mask]
-          receiver_output = receiver_output[anti_mask]
           # print(s_loss)
           # advc_suc = mask.sum()/do_ask_advice.sum()
-          wandb.log({"rec learnt & succ":mask.sum().item(), "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum().item()}, commit=False)
-          if p<0.1:
-            print(mask.sum().item(), anti_mask.sum().item())
-            print("rec learnt & succ:",mask.sum().item(),  "rec learnt",learnt_advices.sum().item(),  ", rec asked: ", do_ask_advice.sum().item(), ", rec recieved:", do_give_advice.sum().item(), '\n')
+          wandb.log({"rec learnt & succ":mask.sum().item(), ", rec learnt":learnt_advices.sum().item(),  "rec asked": do_ask_advice.sum().item(), "rec recieved": do_give_advice.sum().item()}, commit=False)
+
+          print("rec learnt & succ:",mask.sum().item(),", rec learnt:",learnt_advices.sum().item(), ", rec asked: ", do_ask_advice.sum().item(), ", rec recieved:", do_give_advice.sum().item(), '\n')
           for i in range(self.learn_advice_iters):
               if mask.sum().item()<1:
-                continue
-              _ , f_log_prob_r, f_entropy_r = self.receiver(original_message[mask], receiver_input[:, mask, :], message_lengths[mask], mask.cpu().numpy().astype(bool))
+                  continue
+              _ , f_log_prob_r, f_entropy_r = self.receiver(orig_message[mask], receiver_input[:, mask, :], message_lengths[mask], mask.cpu().numpy().astype(bool))
 
               # f_log_prob_r, f_entropy_r = n_log_prob_r[mask], n_entropy_r[mask]
               f_loss = r_loss[mask]
               log_prob_r = torch.cat([log_prob_r, f_log_prob_r])
-              entropy_r = torch.cat([entropy_r, f_entropy_r])
+              # entropy_r = torch.cat([entropy_r, f_entropy_r])
               tot_r_loss = torch.cat([tot_r_loss, f_loss])
 
         self.sender.advice_info = None
         self.receiver.advice_info = None
         message_lengths = find_lengths(message)
+        orig_message_lengths = find_lengths(orig_message)
         # the entropy of the outputs of S before and including the eos symbol - as we don't care about what's after
         effective_entropy_s = torch.zeros_like(entropy_s[:, 0])
 
@@ -1298,10 +845,14 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         effective_log_prob_s = torch.zeros_like(log_prob_s[:, 0])
 
         for i in range(message.size(1)):
+
             not_eosed = (i < message_lengths).float()
-            effective_entropy_s += entropy_s[:, i] * not_eosed
+
             effective_log_prob_s += log_prob_s[:, i] * not_eosed
-        effective_entropy_s = effective_entropy_s / message_lengths.float()
+        for i in range(orig_message.size(1)):
+            orig_not_eosed = (i < orig_message_lengths).float()
+            effective_entropy_s += entropy_s[:, i] * orig_not_eosed
+        effective_entropy_s = effective_entropy_s / orig_message_lengths.float()
 
         weighted_entropy = effective_entropy_s.mean() * self.sender_entropy_coeff + \
                 entropy_r.mean() * self.receiver_entropy_coeff
@@ -1343,7 +894,7 @@ class PopSenderReceiverRnnReinforce(nn.Module):
         return optimized_loss, rest
 
 class RecAdviceManager():
-    def __init__(self, agent_list, unc_threshold=0.05):
+    def __init__(self, agent_list, unc_threshold=0.3):
         self.agent_list = agent_list
         self.unc_threshold = unc_threshold
 
